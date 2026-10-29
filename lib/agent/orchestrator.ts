@@ -20,6 +20,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { artifactStore, MAX_ARTIFACT_BYTES, type ArtifactMetadata, type StoredArtifact } from "../artifacts/store.ts";
 
 import { assertPublicHttpUrl } from "../guard/access.ts";
 import { analyzeUrlStatic, getRegistrableDomain, type StaticFinding, type UrlStaticReport } from "../tools/url-static.ts";
@@ -67,8 +68,8 @@ const STEP_VALIDATE = "validate";
 /** 阻断路径下各采集步骤统一的跳过原因 */
 const BLOCKED_REASON = "访问边界拒绝";
 
-/** 截图不入快照本体：excerpt 只留占位说明，base64 由调用方按 artifactId 另存 */
-const SCREENSHOT_EXCERPT = "[截图 base64 已存 artifacts]";
+/** 截图字节只存短期产物；快照保留可读取的 artifact 引用。 */
+const SCREENSHOT_EXCERPT = "[截图已保存为短期证据产物]";
 
 /** 证据 excerpt 的统一截断长度（快照要能进 IndexedDB，不能把整页正文塞进去） */
 const EXCERPT_LIMIT = 1200;
@@ -90,10 +91,18 @@ export interface ScanServices {
   fetchPage: (url: string, options?: { signal?: AbortSignal }) => Promise<FetchPageResult>;
   visionChat: typeof visionChat;
   chat: typeof chat;
+  saveArtifact: (
+    taskId: string,
+    token: string,
+    bytes: Uint8Array,
+    metadata: ArtifactMetadata,
+    signal?: AbortSignal,
+  ) => Promise<StoredArtifact>;
 }
 
 export interface RunScanOptions {
   signal?: AbortSignal;
+  artifactSession?: { taskId: string; token: string };
   services?: Partial<ScanServices>;
 }
 
@@ -103,6 +112,8 @@ const defaultScanServices: ScanServices = {
   fetchPage,
   visionChat,
   chat,
+  saveArtifact: (taskId, token, bytes, metadata, signal) =>
+    artifactStore.save(taskId, token, bytes, metadata, signal),
 };
 
 // ---------------------------------------------------------------------------
@@ -318,6 +329,7 @@ function buildEvidence(ctx: ScanContext): {
       source: "playwright:page.screenshot(fullPage)",
       locator: `fullPage ${ctx.screenshot.width}x${ctx.screenshot.height}`,
       excerpt: SCREENSHOT_EXCERPT,
+      artifactId: ctx.screenshot.artifactId,
     });
   }
 
@@ -786,8 +798,37 @@ export async function runScan(
   const externalScriptDomains =
     scriptsEvidence && scriptsEvidence.type === "externalScripts" ? scriptsEvidence.domains : [];
 
+  // ---- 闸门③视觉：截图交给视觉模型，失败不阻断 ----------------------------
+  let visionAnswer: string | undefined;
+  const shot = screenshotEvidence && screenshotEvidence.type === "screenshot" ? screenshotEvidence : undefined;
+  let storedScreenshot: StoredArtifact | undefined;
+  if (shot && options.artifactSession) {
+    try {
+      const base64 = shot.data.replace(/^data:image\/png;base64,/i, "");
+      const estimatedBytes = Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
+      if (estimatedBytes > MAX_ARTIFACT_BYTES) {
+        throw new Error("整页截图超过短期证据文件大小限制");
+      }
+      const bytes = Buffer.from(base64, "base64");
+      storedScreenshot = await services.saveArtifact(
+        options.artifactSession.taskId,
+        options.artifactSession.token,
+        bytes,
+        { mediaType: "image/png", width: shot.width, height: shot.height },
+        options.signal,
+      );
+    } catch (err) {
+      throwIfAborted();
+      warnings.push(`截图已用于当次分析，但未能保存为临时证据：${errMsg(err)}`);
+    }
+  } else if (shot) {
+    warnings.push("截图仅用于当次分析；本次运行未建立短期产物会话，无法在报告中回看");
+  }
+
   if (!page.blocked) {
-    const incomplete = Boolean(page.error || page.warnings.length > 0 || !textEvidence || !formsCaptured || !screenshotEvidence);
+    const incomplete = Boolean(
+      page.error || page.warnings.length > 0 || !textEvidence || !formsCaptured || !screenshotEvidence || (shot && !storedScreenshot),
+    );
     emitStep(
       STEP_FETCH,
       incomplete ? "partial" : "completed",
@@ -796,9 +837,6 @@ export async function runScan(
     );
   }
 
-  // ---- 闸门③视觉：截图交给视觉模型，失败不阻断 ----------------------------
-  let visionAnswer: string | undefined;
-  const shot = screenshotEvidence && screenshotEvidence.type === "screenshot" ? screenshotEvidence : undefined;
   if (!shot) {
     emitStep(STEP_VISION, "skipped", undefined, "未采集到整页截图，跳过视觉核验");
   } else {
@@ -835,12 +873,12 @@ export async function runScan(
     visionAnswer,
     warnings,
     domCapturedAt: textEvidence?.capturedAt,
-    screenshot: shot
+    screenshot: shot && storedScreenshot
       ? {
           capturedAt: shot.capturedAt,
           width: shot.width,
           height: shot.height,
-          artifactId: `art-${randomUUID()}`,
+          artifactId: storedScreenshot.id,
         }
       : undefined,
   };
