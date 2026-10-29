@@ -118,6 +118,11 @@ export interface FetchPageResult {
   elapsedMs: number;
 }
 
+export interface FetchPageOptions {
+  /** Cancels navigation and closes the isolated browser context. */
+  signal?: AbortSignal;
+}
+
 // ---------------------------------------------------------------------------
 // 预算常量
 // ---------------------------------------------------------------------------
@@ -198,7 +203,8 @@ function dedupeAdjacent(urls: string[]): string[] {
  * 沙箱代访单个 URL。
  * 任何失败都以结构化结果返回，不向调用方抛异常。
  */
-export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
+export async function fetchPage(rawUrl: string, options: FetchPageOptions = {}): Promise<FetchPageResult> {
+  options.signal?.throwIfAborted();
   const startedAt = Date.now();
   const elapsed = (): number => Date.now() - startedAt;
 
@@ -219,6 +225,7 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
 
   // ---- S0 访问边界：拒绝则不启动浏览器 -----------------------------------
   const guard = await assertPublicHttpUrl(startUrl);
+  options.signal?.throwIfAborted();
   if (!guard.allowed) {
     return {
       blocked: true,
@@ -249,6 +256,10 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
   let context: BrowserContext | null = null;
   let page: Page | null = null;
+  const closeOnAbort = () => {
+    void context?.close().catch(() => undefined);
+  };
+  options.signal?.addEventListener("abort", closeOnAbort, { once: true });
 
   try {
     browser = await chromium.launch({
@@ -256,6 +267,7 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
       // Windows 下部分环境（管理员 / 容器）沙箱初始化会失败
       args: ["--no-sandbox"],
     });
+    options.signal?.throwIfAborted();
     // 每次调用独立 context：无 cookie / 存储 / 缓存残留，探测之间互不影响
     context = await browser.newContext({
       viewport: VIEWPORT,
@@ -263,9 +275,17 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
       // 证书状态属于「技术事实」，由上层规则层判定，本层只负责把页面取回来
       ignoreHTTPSErrors: true,
     });
+    if (options.signal?.aborted) {
+      await context.close().catch(() => undefined);
+      options.signal.throwIfAborted();
+    }
 
     // ---- DNS 重绑定缓解：所有请求（含主文档与子资源）都过 S0 ---------------
     await context.route("**/*", async (route: Route) => {
+      if (options.signal?.aborted) {
+        await route.abort().catch(() => undefined);
+        return;
+      }
       const req = route.request();
       const target = safeUrl(req.url());
       if (!target || (target.protocol !== "http:" && target.protocol !== "https:")) {
@@ -318,6 +338,7 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
         timeout: Math.max(1000, remaining()),
       });
     } catch (err) {
+      options.signal?.throwIfAborted();
       navError = budgetExceeded
         ? `跳转次数超过预算（最多 ${MAX_REDIRECTS} 次）`
         : `导航失败：${errMsg(err)}`;
@@ -327,7 +348,11 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
     // 顺序即优先级——一旦超时，已拿到的廉价证据仍可作为 partialEvidence 返回
     const finalUrl = page.url();
 
-    if (remaining() <= 0) {
+    if (navError) {
+      // A blank/chrome-error document after a failed navigation is not the target
+      // page. In particular, its empty DOM must never become an "no forms" fact.
+      warnings.push(`目标文档导航失败，未采集页面 DOM/HTML/截图：${navError}`);
+    } else if (remaining() <= 0) {
       warnings.push(`总超时 ${TOTAL_TIMEOUT_MS}ms 已用尽，跳过剩余采集步骤`);
     } else {
       // 1) 标题 + 可见正文
@@ -396,6 +421,7 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
           scripts: thirdParty,
         });
       } catch (err) {
+        options.signal?.throwIfAborted();
         warnings.push(`DOM 证据采集失败：${errMsg(err)}`);
       }
 
@@ -406,6 +432,7 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
         html = t.text;
         htmlTruncated = t.truncated;
       } catch (err) {
+        options.signal?.throwIfAborted();
         warnings.push(`HTML 采集失败：${errMsg(err)}`);
       }
 
@@ -428,6 +455,7 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
           fullPage: true,
         });
       } catch (err) {
+        options.signal?.throwIfAborted();
         warnings.push(`截图采集失败：${errMsg(err)}`);
       }
     }
@@ -470,6 +498,7 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
       elapsedMs: elapsed(),
     };
   } catch (err) {
+    options.signal?.throwIfAborted();
     // 浏览器启动 / context 创建等阶段的意外失败：同样降级为结构化结果
     return {
       blocked: false,
@@ -483,6 +512,7 @@ export async function fetchPage(rawUrl: string): Promise<FetchPageResult> {
       elapsedMs: elapsed(),
     };
   } finally {
+    options.signal?.removeEventListener("abort", closeOnAbort);
     // 隔离性保证：无论成败都关掉本次 context 与浏览器
     await context?.close().catch(() => undefined);
     await browser?.close().catch(() => undefined);

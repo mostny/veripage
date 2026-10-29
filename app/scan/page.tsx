@@ -16,39 +16,69 @@ interface StepEvent {
   detail?: string;
   reason?: string;
 }
-type ScanEvent = StepEvent | { type: "started"; taskId: string } | { type: "report"; snapshot: CaseSnapshot };
+type ScanEvent =
+  | StepEvent
+  | { type: "started"; taskId: string }
+  | { type: "report"; snapshot: CaseSnapshot }
+  | { type: "interrupted" };
 
-async function* readScanStream(url: string): AsyncGenerator<ScanEvent> {
+function parseSseBlock(block: string): ScanEvent | undefined {
+  const data = block
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).replace(/^ /, ""))
+    .join("\n");
+  if (!data) return undefined;
+  try {
+    return JSON.parse(data) as ScanEvent;
+  } catch {
+    return undefined;
+  }
+}
+
+async function* readScanStream(url: string, signal: AbortSignal): AsyncGenerator<ScanEvent> {
   const res = await fetch("/api/scan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
+    signal,
   });
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "");
     throw new Error(`检测请求失败（HTTP ${res.status}）${text.slice(0, 120)}`);
   }
   const reader = res.body.getReader();
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder("utf-8");
   let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    // SSE 事件以空行分隔；最后一个可能是半截，留在缓冲区
-    const blocks = buffer.split("\n\n");
-    buffer = blocks.pop() ?? "";
-    for (const block of blocks) {
-      for (const line of block.split("\n")) {
-        if (!line.startsWith("data: ")) continue;
-        try {
-          yield JSON.parse(line.slice(6)) as ScanEvent;
-        } catch {
-          // 忽略无法解析的帧
-        }
+  let receivedReport = false;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const blocks = normalized.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const event = parseSseBlock(block);
+        if (!event) continue;
+        if (event.type === "report") receivedReport = true;
+        yield event;
       }
     }
+    buffer += decoder.decode();
+    const finalBlock = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+    if (finalBlock) {
+      const event = parseSseBlock(finalBlock);
+      if (event) {
+        if (event.type === "report") receivedReport = true;
+        yield event;
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
   }
+  if (!receivedReport) yield { type: "interrupted" };
 }
 
 // ---------------------------------------------------------------------------
@@ -119,15 +149,34 @@ function ScanClient() {
   const [steps, setSteps] = useState<Record<string, { state: UiState; detail?: string; reason?: string }>>({});
   const [snapshot, setSnapshot] = useState<CaseSnapshot | null>(null);
   const [fatal, setFatal] = useState("");
-  const started = useRef(false);
+  const [status, setStatus] = useState<"idle" | "running" | "completed" | "failed" | "interrupted">("idle");
+  const [taskId, setTaskId] = useState("");
+  const generationRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const run = useCallback(async (url: string) => {
+    abortControllerRef.current?.abort(new DOMException("Superseded by a newer scan", "AbortError"));
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    const generation = ++generationRef.current;
     setSteps({});
     setSnapshot(null);
     setFatal("");
+    setTaskId("");
+    setStatus("running");
+    let terminal: "running" | "completed" | "failed" | "interrupted" = "running";
     try {
-      for await (const ev of readScanStream(url)) {
-        if (ev.type === "step") {
+      for await (const ev of readScanStream(url, abortController.signal)) {
+        if (generation !== generationRef.current) return;
+        if (ev.type === "started") {
+          setTaskId(ev.taskId);
+        } else if (ev.type === "interrupted") {
+          if (terminal === "running") {
+            terminal = "interrupted";
+            setFatal("检测连接已结束，但没有收到完整报告。请重试；若持续发生，请联系维护者。");
+            setStatus("interrupted");
+          }
+        } else if (ev.type === "step") {
           setSteps((prev) => {
             const next = { ...prev };
             // 前一个 running 收尾：本事件之前的 running 步骤视为已结束（保持最后已知状态）
@@ -137,19 +186,42 @@ function ScanClient() {
             next[ev.step] = { state: ev.state, detail: ev.detail, reason: ev.reason };
             return next;
           });
+          if (ev.step === "validate" && ev.state === "failed") {
+            terminal = "failed";
+            setFatal(`检测未完成：${ev.reason ?? "服务端未能生成有效报告"}`);
+            setStatus("failed");
+          }
         } else if (ev.type === "report") {
+          terminal = "completed";
           setSnapshot(ev.snapshot);
+          setStatus("completed");
+          // The report is the terminal contract; do not let a subsequent transport
+          // close/error overwrite a completed result.
+          break;
         }
       }
     } catch (err) {
+      if (abortController.signal.aborted || generation !== generationRef.current) return;
+      terminal = "failed";
       setFatal(err instanceof Error ? err.message : String(err));
+      setStatus("failed");
+    } finally {
+      if (generation === generationRef.current && terminal === "running") {
+        terminal = "interrupted";
+        setFatal("检测连接已结束，但没有收到完整报告。请重试；若持续发生，请联系维护者。");
+        setStatus("interrupted");
+      }
+      if (abortControllerRef.current === abortController) abortControllerRef.current = null;
     }
   }, []);
 
   useEffect(() => {
-    if (!targetUrl || started.current) return;
-    started.current = true;
-    void run(targetUrl);
+    if (!targetUrl) return;
+    const timer = window.setTimeout(() => void run(targetUrl), 0);
+    return () => {
+      window.clearTimeout(timer);
+      abortControllerRef.current?.abort(new DOMException("Scan page unloaded", "AbortError"));
+    };
   }, [targetUrl, run]);
 
   // 推导每个固定步骤的展示状态：收到事件用事件状态；否则第一个未完成步骤=running
@@ -159,7 +231,7 @@ function ScanClient() {
     const got = steps[key];
     if (got) {
       uiStates[key] = got.state;
-    } else if (!runningAssigned && !snapshot && !fatal) {
+    } else if (!runningAssigned && status === "running" && !snapshot && !fatal) {
       uiStates[key] = "running";
       runningAssigned = true;
     } else {
@@ -184,7 +256,7 @@ function ScanClient() {
           </div>
           <button
             onClick={() => targetUrl && run(targetUrl)}
-            disabled={!targetUrl}
+            disabled={!targetUrl || status === "running"}
             className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:opacity-40"
           >
             重新检测
@@ -225,7 +297,13 @@ function ScanClient() {
               </div>
             )}
 
-            {!snapshot && !fatal && (
+            {!targetUrl && !snapshot && !fatal && (
+              <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-8 text-center text-sm text-neutral-500">
+                请返回首页并输入需要核验的链接。
+              </div>
+            )}
+
+            {status === "running" && !snapshot && !fatal && (
               <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-8 text-center text-sm text-neutral-500">
                 <span className="mb-2 inline-block animate-pulse text-2xl">◐</span>
                 <p>正在核验……机器沙箱正在替你访问页面并采集证据（通常 15~40 秒）</p>
@@ -340,6 +418,10 @@ function ScanClient() {
                     版本：model={snapshot.versions.model} · prompt={snapshot.versions.prompt} · policy={snapshot.versions.policy}
                   </p>
                 </details>
+
+                <p className="text-center text-[11px] text-neutral-600">
+                  本次任务：{taskId || "（报告未附任务标识）"} · {status === "completed" ? "检测完成" : ""}
+                </p>
 
                 <p className="text-center text-[11px] text-neutral-600">
                   结论由 AI 基于证据生成，是辅助判断；「未检出风险」不等于保证安全。

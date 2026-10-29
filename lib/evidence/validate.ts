@@ -97,6 +97,7 @@ export function validateSnapshot(snapshot: CaseSnapshot): ValidationResult {
   }
 
   const findingIds = new Set<string>()
+  const findingById = new Map<string, Finding>()
   for (const f of findings) {
     if (!isNonEmptyString(f?.id)) {
       errors.push(`存在 id 为空的 finding: ${JSON.stringify(f)}`)
@@ -106,6 +107,18 @@ export function validateSnapshot(snapshot: CaseSnapshot): ValidationResult {
       errors.push(`finding id 重复: ${f.id}`)
     }
     findingIds.add(f.id)
+    if (!findingById.has(f.id)) findingById.set(f.id, f)
+  }
+
+  /** 推理链至少要落到一个真实证据 ID；循环本身不能充当依据。 */
+  const reachesEvidence = (findingId: string, visiting: Set<string>): boolean => {
+    if (visiting.has(findingId)) return false
+    const finding = findingById.get(findingId)
+    if (!finding) return false
+    const nextVisiting = new Set(visiting).add(findingId)
+    return asArray<string>(finding.evidenceIds).some(
+      (ref) => evidenceIds.has(ref) || (findingById.has(ref) && reachesEvidence(ref, nextVisiting)),
+    )
   }
 
   const needsEvidence = (kind: FindingKind) => kind === "observed_fact" || kind === "reference"
@@ -113,14 +126,25 @@ export function validateSnapshot(snapshot: CaseSnapshot): ValidationResult {
     if (!isNonEmptyString(f?.id)) continue
     const refs = asArray<string>(f.evidenceIds)
     if (f.kind === "inference") {
+      if (refs.length === 0) {
+        errors.push(`finding[${f.id}] (inference) 未引用任何证据或推理依据`)
+      }
+      let hasEvidenceRoot = false
       for (const ref of refs) {
         if (ref === f.id) {
           errors.push(`finding[${f.id}] 引用了自身`)
           continue
         }
-        if (!evidenceIds.has(ref) && !findingIds.has(ref)) {
+        if (evidenceIds.has(ref)) {
+          hasEvidenceRoot = true
+        } else if (!findingIds.has(ref)) {
           errors.push(`finding[${f.id}] 引用了不存在的 id: ${String(ref)}`)
+        } else if (reachesEvidence(ref, new Set([f.id]))) {
+          hasEvidenceRoot = true
         }
+      }
+      if (refs.length > 0 && !hasEvidenceRoot) {
+        errors.push(`finding[${f.id}] 推理链无法到达任何真实证据`)
       }
     } else if (needsEvidence(f.kind)) {
       if (refs.length === 0) {
@@ -153,6 +177,15 @@ export function validateSnapshot(snapshot: CaseSnapshot): ValidationResult {
     if ((c?.state === "skipped" || c?.state === "failed") && !isNonEmptyString(c?.reason)) {
       errors.push(`[warn] coverage[${i}] (${String(c?.step)}) 状态为 ${c.state} 但未填写 reason`)
     }
+  }
+
+  const coverageSteps = new Set<string>()
+  for (const c of coverage) {
+    if (!isNonEmptyString(c?.step)) continue
+    if (coverageSteps.has(c.step)) {
+      errors.push(`coverage.step 重复：${c.step}（每个步骤只能保留一条最终状态）`)
+    }
+    coverageSteps.add(c.step)
   }
 
   return { ok: errors.length === 0, errors }

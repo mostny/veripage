@@ -75,6 +75,8 @@ export interface ChatOptions {
   tools?: ToolDef[];
   temperature?: number;
   maxTokens?: number;
+  /** Cancels model HTTP requests when the scan request/overall budget is cancelled. */
+  signal?: AbortSignal;
   /** 可重试错误（网络错误 / HTTP >=500）的重试次数，默认 1 次 */
   retries?: number;
 }
@@ -166,8 +168,21 @@ function headers(): Record<string, string> {
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(signal.reason ?? new DOMException("The operation was aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+  });
 }
 
 /** 把错误响应体压成一行并截断，避免异常信息过长 */
@@ -251,16 +266,19 @@ export async function chat(messages: ChatMessage[], opts: ChatOptions = {}): Pro
   const retries = opts.retries ?? 1;
 
   for (let attempt = 0; ; attempt += 1) {
+    opts.signal?.throwIfAborted();
     let res: Response;
     try {
       res = await fetch(url, {
         method: "POST",
         headers: headers(),
         body: JSON.stringify(buildBody(messages, opts, false)),
+        signal: opts.signal,
       });
     } catch (err) {
+      if (opts.signal?.aborted) throw opts.signal.reason ?? err;
       if (attempt < retries) {
-        await sleep(RETRY_BACKOFF_MS);
+        await sleep(RETRY_BACKOFF_MS, opts.signal);
         continue;
       }
       throw new Error(`Agnes 请求失败（网络错误）：${err instanceof Error ? err.message : String(err)}`);
@@ -270,7 +288,7 @@ export async function chat(messages: ChatMessage[], opts: ChatOptions = {}): Pro
       const detail = await readErrorBody(res);
       const err = new Error(`Agnes 返回 HTTP ${res.status}：${detail}`);
       if (attempt < retries && isRetryableStatus(res.status)) {
-        await sleep(RETRY_BACKOFF_MS);
+        await sleep(RETRY_BACKOFF_MS, opts.signal);
         continue;
       }
       throw err;
@@ -286,8 +304,9 @@ export async function chat(messages: ChatMessage[], opts: ChatOptions = {}): Pro
     try {
       json = await res.json();
     } catch (err) {
+      if (opts.signal?.aborted) throw opts.signal.reason ?? err;
       if (attempt < retries) {
-        await sleep(RETRY_BACKOFF_MS);
+        await sleep(RETRY_BACKOFF_MS, opts.signal);
         continue;
       }
       throw new Error(`Agnes 响应非 JSON：${err instanceof Error ? err.message : String(err)}`);
@@ -391,10 +410,12 @@ export async function* chatStream(
   messages: ChatMessage[],
   opts: ChatOptions = {},
 ): AsyncGenerator<StreamEvent> {
+  opts.signal?.throwIfAborted();
   const res = await fetch(`${baseUrl()}/chat/completions`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(buildBody(messages, opts, true)),
+    signal: opts.signal,
   });
 
   if (!res.ok) {
