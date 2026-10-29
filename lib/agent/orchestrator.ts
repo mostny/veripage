@@ -1,423 +1,767 @@
 /**
- * 检测编排器：把 S0 边界 + 三道闸门串成一条流水线，产出可校验的 CaseSnapshot
+ * 检测编排器：把 S0 访问边界 + 三道闸门 + 快照校验串成一次完整检测
  *
- * 流程：S0 访问边界 → 闸门① 静态分析 → 闸门② 沙箱代访 → 闸门③ 视觉核验 + 主分析 → 快照组装与校验
- * 每个阶段通过 onEvent 向外发 step 事件（前端 SSE 时间线的来源）；
- * 任何失败都不抛异常：降级为结构化结果（risk=unknown + gaps），取证不完整在 coverage 中诚实可见。
+ * 定位（对应 docs/framework.md 的流水线图）：
+ *   S0 访问边界（lib/guard/access.ts）
+ *     → 闸门① URL 静态分析（lib/tools/url-static.ts，纯规则不联网）
+ *     → 闸门② 沙箱代访（lib/tools/fetch-page.ts，Playwright）
+ *     → 闸门③ AI 取证（视觉 visionChat + 主分析 chat，提示词见 lib/prompts/analyzer.ts）
+ *     → validate（lib/evidence/validate.ts，结论-证据绑定校验）
  *
- * 证据 id 一致性（本模块的接线核心）：
- *   快照 evidence[].id 与 buildAnalyzerUserMessage 列出的证据 id 来自同一份数据源，
- *   模型 findings 引用的 id 才能通过 validateSnapshot 的绑定校验。
+ * 设计纪律：
+ * - 每个阶段都向 onEvent 发一个 step 事件，事件名固定为
+ *   s0-guard / gate1-static / gate2-fetch / gate3-vision / gate3-analyzer / validate；
+ *   这些事件同时聚合进快照的 coverage（第三维：检测覆盖），失败/跳过必须带 reason。
+ * - 「先建 evidence 数组，再用同一份数据生成分析器 user 消息」：analyzer 消息里列出的
+ *   证据 id 与最终快照 evidence[].id 必须一一对应，否则 validateSnapshot 必然报
+ *   「引用了不存在的证据」——这是本文件最容易踩的坑。
+ * - 截图 base64 只在内存里流向视觉模型，绝不写进快照：快照只留 artifactIds。
+ * - 任何一步失败都降级不抛异常：模型两次输出不可解析 → risk="unknown" 的兜底报告。
  */
 
+import { randomUUID } from "node:crypto";
+
 import { assertPublicHttpUrl } from "../guard/access.ts";
-import { analyzeUrlStatic } from "../tools/url-static.ts";
-import { fetchPage } from "../tools/fetch-page.ts";
+import { analyzeUrlStatic, getRegistrableDomain, type StaticFinding } from "../tools/url-static.ts";
+import { fetchPage, type PageEvidence } from "../tools/fetch-page.ts";
 import { chat, visionChat, type ChatMessage } from "../models.ts";
 import {
-  analyzerSystemPrompt,
-  visionAnalysisPrompt,
-  buildAnalyzerUserMessage,
   PROMPT_VERSION,
+  analyzerSystemPrompt,
+  buildAnalyzerUserMessage,
+  visionAnalysisPrompt,
   type AnalyzerEvidenceInput,
 } from "../prompts/analyzer.ts";
 import { validateSnapshot } from "../evidence/validate.ts";
-import type {
-  Assessment,
-  CaseSnapshot,
-  CoverageEntry,
-  EvidenceItem,
-  Finding,
-  RiskLevel,
+import {
+  EVIDENCE_SUFFICIENCIES,
+  FINDING_KINDS,
+  RISK_LEVELS,
+  type Assessment,
+  type CaseSnapshot,
+  type CoverageEntry,
+  type EvidenceItem,
+  type Finding,
+  type FindingKind,
+  type RiskLevel,
+  type StepState,
 } from "../evidence/types.ts";
 
-export type ScanStepName =
-  | "s0-guard"
-  | "gate1-static"
-  | "gate2-fetch"
-  | "gate3-vision"
-  | "gate3-analyzer"
-  | "validate";
+// ---------------------------------------------------------------------------
+// 常量与对外类型
+// ---------------------------------------------------------------------------
 
+/** 编排器对外事件：过程事件（step，前端进度条）+ 结果事件（report，由路由层发送） */
 export type ScanEvent =
-  | {
-      type: "step";
-      step: ScanStepName;
-      state: "completed" | "partial" | "skipped" | "failed";
-      detail?: string;
-      reason?: string;
-    }
+  | { type: "step"; step: string; state: StepState; detail?: string; reason?: string }
   | { type: "report"; snapshot: CaseSnapshot };
 
-const RISK_ENUM: readonly RiskLevel[] = ["high", "suspicious", "no_significant_risk", "unknown"];
+/** 六个阶段的事件名（前端与 coverage 都按这几个名字对齐） */
+const STEP_S0 = "s0-guard";
+const STEP_STATIC = "gate1-static";
+const STEP_FETCH = "gate2-fetch";
+const STEP_VISION = "gate3-vision";
+const STEP_ANALYZER = "gate3-analyzer";
+const STEP_VALIDATE = "validate";
 
-function nowIso(): string {
-  return new Date().toISOString();
+/** 阻断路径下各采集步骤统一的跳过原因 */
+const BLOCKED_REASON = "访问边界拒绝";
+
+/** 截图不入快照本体：excerpt 只留占位说明，base64 由调用方按 artifactId 另存 */
+const SCREENSHOT_EXCERPT = "[截图 base64 已存 artifacts]";
+
+/** 证据 excerpt 的统一截断长度（快照要能进 IndexedDB，不能把整页正文塞进去） */
+const EXCERPT_LIMIT = 1200;
+
+/** 主分析器第一次输出不可解析时的纠偏提示（追加在 messages 末尾的 user 消息） */
+const RETRY_HINT = "上一次输出无法解析为合法 JSON，请严格只输出 JSON 对象";
+
+/** 过程事件回调：同时负责把事件聚合进 coverage */
+type EmitStep = (step: string, state: StepState, detail?: string, reason?: string) => void;
+
+// ---------------------------------------------------------------------------
+// 证据上下文：evidence 数组与 analyzer 消息的唯一事实来源
+// ---------------------------------------------------------------------------
+
+interface ScanContext {
+  /** 展示用 URL（归一化后） */
+  displayUrl: string;
+  registrableDomain: string;
+  /** 闸门①静态规则命中 */
+  staticFindings: StaticFinding[];
+  staticScore: number;
+  /** 闸门②跳转链（起点 → 终点） */
+  redirectChain: string[];
+  pageTitle?: string;
+  pageText?: string;
+  /** 表单硬事实，id 由编排器生成（ev-form-N），与证据 id 同源 */
+  forms: Array<{ id: string; action: string; method: string; hasPasswordInput: boolean; inputCount: number }>;
+  externalScriptDomains: string[];
+  /** 闸门③视觉模型答复（作为 ev-vision 证据） */
+  visionAnswer?: string;
+  /** 取证告警（超时 / 部分失败），并入 gaps */
+  warnings: string[];
+  /** DOM 类证据的实际采集时间（title/text/forms/scripts 同一次 evaluate） */
+  domCapturedAt?: string;
+  /** 截图证据（base64 只在这里存活，不进快照） */
+  screenshot?: { capturedAt: string; width: number; height: number; artifactId: string };
 }
 
-/** 从模型输出中剥围栏并解析 JSON；失败返回 null */
-function extractJson(text: string): unknown | null {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const raw = (fenced ? fenced[1] : text).trim();
+// ---------------------------------------------------------------------------
+// 内部工具
+// ---------------------------------------------------------------------------
+
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** 摘录截断：超长加省略标记，保证快照体积可控 */
+function clip(text: string, max = EXCERPT_LIMIT): string {
+  const trimmed = text.trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…（已截断）` : trimmed;
+}
+
+function toStringArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    .map((v) => v.trim());
+}
+
+/** 从任意输入里安全取出可注册主域（S0 拒绝路径也要能给 inputSummary 填值） */
+function safeRegistrableDomain(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
   try {
-    return JSON.parse(raw);
+    const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    return getRegistrableDomain(url.hostname.toLowerCase()) || url.hostname;
   } catch {
-    return null;
+    return "(无法解析)";
   }
 }
 
-/** 把模型 JSON 收敛成合法 Assessment；结构不合法返回 null */
-function coerceAssessment(raw: unknown): Assessment | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const risk = r.risk as RiskLevel;
-  const suff = r.evidenceSufficiency as Assessment["evidenceSufficiency"];
-  if (!RISK_ENUM.includes(risk)) return null;
-  if (!["sufficient", "partial", "insufficient"].includes(suff)) return null;
-  const findings: Finding[] = Array.isArray(r.findings)
-    ? (r.findings as Record<string, unknown>[])
-        .filter((f) => f && typeof f.id === "string" && typeof f.statement === "string")
-        .map((f, i) => ({
-          id: String(f.id) || `f${i + 1}`,
-          statement: String(f.statement),
-          kind: (["observed_fact", "inference", "reference"].includes(String(f.kind))
-            ? f.kind
-            : "inference") as Finding["kind"],
-          evidenceIds: Array.isArray(f.evidenceIds) ? f.evidenceIds.map(String) : [],
-          alternativeExplanations: Array.isArray(f.alternativeExplanations)
-            ? f.alternativeExplanations.map(String)
-            : [],
-        }))
-    : [];
-  return {
-    risk,
-    evidenceSufficiency: suff,
-    gaps: Array.isArray(r.gaps) ? r.gaps.map(String) : [],
-    summary: typeof r.summary === "string" ? r.summary : "",
-    findings,
-    unknowns: Array.isArray(r.unknowns) ? r.unknowns.map(String) : [],
-    recommendedAction:
-      typeof r.recommendedAction === "string" ? r.recommendedAction : "建议通过官方渠道独立核实。",
-  };
-}
+// ---------------------------------------------------------------------------
+// evidence 数组构建（与 analyzer user 消息同源，id 必须一致）
+// ---------------------------------------------------------------------------
 
-/** 主分析：两轮重试内的 JSON 收敛；两轮都失败返回 null（走兜底） */
-async function runAnalyzer(input: AnalyzerEvidenceInput): Promise<Assessment | null> {
-  const messages: ChatMessage[] = [
-    { role: "system", content: analyzerSystemPrompt() },
-    { role: "user", content: buildAnalyzerUserMessage(input) },
-  ];
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const result = await chat(messages, { temperature: 0.2, maxTokens: 2000 });
-    const assessment = coerceAssessment(extractJson(result.content));
-    if (assessment) return assessment;
-    if (attempt === 0) {
-      messages.push({ role: "assistant", content: result.content });
-      messages.push({
-        role: "user",
-        content: "上一次输出无法解析为合法 JSON（或枚举非法），请严格只输出一个 JSON 对象，不要任何其他文字。",
+/**
+ * 由同一份 ScanContext 产出两样东西：
+ *   1. evidence —— 最终快照的证据池
+ *   2. analyzerInput —— 喂给 buildAnalyzerUserMessage 的同一份数据
+ * 两边 id 完全一致，模型引用的每个 id 都能在证据池里找到。
+ */
+function buildEvidence(ctx: ScanContext): {
+  evidence: EvidenceItem[];
+  analyzerInput: AnalyzerEvidenceInput;
+} {
+  const now = new Date().toISOString();
+  const domAt = ctx.domCapturedAt ?? now;
+  const evidence: EvidenceItem[] = [];
+
+  // 用户提交的 URL：一切结论的锚点
+  evidence.push({
+    id: "ev-url",
+    type: "url",
+    capturedAt: now,
+    source: "user-input",
+    locator: ctx.displayUrl,
+    excerpt: ctx.displayUrl,
+  });
+
+  // 闸门①：命中项逐条成为证据；无命中也要留一条「未命中」的事实
+  if (ctx.staticFindings.length === 0) {
+    evidence.push({
+      id: "ev-static",
+      type: "url",
+      capturedAt: now,
+      source: "url-static:rules",
+      locator: ctx.registrableDomain,
+      excerpt: "静态规则未命中任何项（静态分 0）",
+    });
+  } else {
+    for (const f of ctx.staticFindings) {
+      evidence.push({
+        id: f.id,
+        type: "url",
+        capturedAt: now,
+        source: "url-static:rules",
+        locator: ctx.registrableDomain,
+        excerpt: `${f.title}｜${f.detail}（权重 ${f.weight}）`,
       });
     }
-  }
-  return null;
-}
-
-export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void): Promise<CaseSnapshot> {
-  const capturedAt = nowIso();
-  const coverage: CoverageEntry[] = [];
-  const evidence: EvidenceItem[] = [];
-  const artifactIds: string[] = [];
-  const gaps: string[] = [];
-
-  const emitStep = (
-    step: ScanStepName,
-    state: CoverageEntry["state"],
-    detail?: string,
-    reason?: string,
-  ): void => {
-    coverage.push({ step, state, reason });
-    onEvent({ type: "step", step, state, detail, reason });
-  };
-
-  // ---- S0 访问边界 ---------------------------------------------------------
-  const guard = await assertPublicHttpUrl(rawUrl.trim());
-  if (!guard.allowed) {
-    // 阻断路径也要留下可解析的主域记录（校验要求非空）
-    let blockedDomain = "(未知)";
-    try {
-      const u = new URL(/^https?:\/\//i.test(rawUrl.trim()) ? rawUrl.trim() : `https://${rawUrl.trim()}`);
-      blockedDomain = u.hostname || "(未知)";
-    } catch {
-      // 保持 "(未知)"
-    }
-    emitStep("s0-guard", "completed", undefined, guard.reason);
-    emitStep("gate1-static", "completed", "S0 已拒绝，静态分析仍执行（纯本地）");
-    emitStep("gate2-fetch", "skipped", undefined, "访问边界拒绝");
-    emitStep("gate3-vision", "skipped", undefined, "访问边界拒绝");
-    emitStep("gate3-analyzer", "skipped", undefined, "访问边界拒绝");
-
     evidence.push({
-      id: "ev-url",
+      id: "ev-static-score",
       type: "url",
-      capturedAt,
-      source: "user-input",
-      excerpt: rawUrl,
+      capturedAt: now,
+      source: "url-static:score",
+      locator: ctx.registrableDomain,
+      excerpt: `静态规则加权分：${ctx.staticScore}/100（参考信号，不是结论）`,
     });
-    evidence.push({
-      id: "ev-s0-reject",
-      type: "request",
-      capturedAt,
-      source: "guard:assertPublicHttpUrl",
-      excerpt: guard.reason,
-    });
-    gaps.push(`S0 访问边界拒绝：${guard.reason}`);
-
-    const snapshot: CaseSnapshot = {
-      id: crypto.randomUUID(),
-      createdAt: capturedAt,
-      inputSummary: { displayUrl: rawUrl, registrableDomain: blockedDomain },
-      versions: buildVersions(),
-      originalAssessment: {
-        risk: "unknown",
-        evidenceSufficiency: "insufficient",
-        gaps,
-        summary: `该 URL 被访问边界拒绝，未执行任何页面取证：${guard.reason}`,
-        findings: [
-          {
-            id: "f1",
-            statement: `URL 目标被判定为不可访问（${guard.reason ?? "访问边界拒绝"}）`,
-            kind: "observed_fact",
-            evidenceIds: ["ev-s0-reject"],
-            alternativeExplanations: ["目标确属内网/保留地址，可能是合法的内网服务，与钓鱼无关"],
-          },
-        ],
-        unknowns: ["未执行页面取证，页面内容与真实行为未知"],
-        recommendedAction: "该目标不适用本工具的网页核验（内网/保留地址），如需检测请提供公网页面。",
-      },
-      coverage,
-      evidence,
-      artifactIds: [],
-    };
-    return finish(snapshot, onEvent, emitStep);
   }
 
-  emitStep("s0-guard", "completed", `放行（解析 IP：${guard.resolvedIps?.join(", ") ?? "-"}）`);
-
-  // ---- 闸门① 静态分析 -------------------------------------------------------
-  const staticResult = analyzeUrlStatic(rawUrl);
-  emitStep(
-    "gate1-static",
-    "completed",
-    `命中 ${staticResult.findings.length} 项，静态分 ${staticResult.score}/100`,
-  );
-  evidence.push({ id: "ev-url", type: "url", capturedAt, source: "user-input", locator: staticResult.host, excerpt: staticResult.normalizedUrl });
-  if (staticResult.findings.length === 0) {
-    evidence.push({ id: "ev-static", type: "reputation", capturedAt, source: "rule:url-static", excerpt: "静态规则未命中任何项（静态分 0）" });
-  } else {
-    for (const f of staticResult.findings) {
-      evidence.push({ id: f.id, type: "reputation", capturedAt, source: "rule:url-static", locator: f.title, excerpt: f.detail });
-    }
-    evidence.push({ id: "ev-static-score", type: "reputation", capturedAt, source: "rule:url-static", excerpt: `静态规则加权分 ${staticResult.score}/100` });
-  }
-
-  // ---- 闸门② 沙箱代访 -------------------------------------------------------
-  const page = await fetchPage(rawUrl.trim());
-  let visionAnswer: string | undefined;
-  let pageText: string | undefined;
-  let pageTitle: string | undefined;
-
-  if (page.blocked) {
-    // S0 已放行但 fetch 内部再次拦截（重绑定等）：按取证失败处理
-    emitStep("gate2-fetch", "failed", undefined, page.reason ?? "沙箱代访被拦截");
-    gaps.push(`沙箱代访被拦截：${page.reason ?? "未知原因"}`);
-  } else if (page.error) {
-    emitStep("gate2-fetch", "partial", `已采集 ${page.partialEvidence?.length ?? 0} 项部分证据`, page.error);
-    gaps.push(`沙箱代访不完整：${page.error}`);
-  } else {
-    emitStep("gate2-fetch", "completed", `跳转链 ${page.redirectChain.length} 跳，证据 ${page.evidence.length} 项，耗时 ${page.elapsedMs}ms`);
-  }
-
-  const finalUrl = page.finalUrl ?? rawUrl;
+  // 闸门②：跳转链
+  const finalUrl = ctx.redirectChain[ctx.redirectChain.length - 1] ?? ctx.displayUrl;
   evidence.push({
     id: "ev-redirect",
     type: "redirect",
-    capturedAt,
+    capturedAt: now,
     source: "playwright:redirectChain",
-    excerpt: page.redirectChain.join(" → "),
+    locator: finalUrl,
+    excerpt: ctx.redirectChain.length > 0 ? ctx.redirectChain.join(" → ") : "(无跳转链)",
   });
 
-  const textEv = [...page.evidence, ...(page.partialEvidence ?? [])].find((e) => e.type === "text");
-  if (textEv && textEv.type === "text") {
-    pageTitle = textEv.title;
-    pageText = textEv.text;
-    evidence.push({ id: "ev-title", type: "text", capturedAt, source: "playwright:document.title", excerpt: textEv.title });
-    evidence.push({ id: "ev-text", type: "text", capturedAt, source: "playwright:body.innerText", excerpt: textEv.text.slice(0, 2000) });
-  } else {
-    gaps.push("未取得页面标题与正文（取证未覆盖）");
-  }
-
-  const formsEv = [...page.evidence, ...(page.partialEvidence ?? [])].find((e) => e.type === "forms");
-  const forms = formsEv && formsEv.type === "forms" ? formsEv.forms : [];
-  if (forms.length > 0) {
-    forms.forEach((f, i) => {
-      evidence.push({
-        id: `ev-form-${i + 1}`,
-        type: "form",
-        capturedAt,
-        source: "playwright:document.forms",
-        locator: f.action || "(当前页)",
-        excerpt: `action=${f.action || "(空)"} method=${f.method} 密码框=${f.hasPasswordInput ? "有" : "无"} 输入项=${f.inputCount}`,
-      });
+  if (ctx.pageTitle !== undefined) {
+    evidence.push({
+      id: "ev-title",
+      type: "text",
+      capturedAt: domAt,
+      source: "playwright:document.title",
+      locator: "document.title",
+      excerpt: clip(ctx.pageTitle),
     });
-  } else {
-    evidence.push({ id: "ev-form-none", type: "form", capturedAt, source: "playwright:document.forms", excerpt: "页面未发现表单" });
+  }
+  if (ctx.pageText !== undefined && ctx.pageText.length > 0) {
+    evidence.push({
+      id: "ev-text",
+      type: "text",
+      capturedAt: domAt,
+      source: "playwright:document.body.innerText",
+      locator: "document.body",
+      excerpt: clip(ctx.pageText),
+    });
   }
 
-  const scriptsEv = [...page.evidence, ...(page.partialEvidence ?? [])].find((e) => e.type === "externalScripts");
-  const externalScriptDomains = scriptsEv && scriptsEv.type === "externalScripts" ? scriptsEv.domains : [];
-  if (externalScriptDomains.length > 0) {
+  if (ctx.forms.length > 0) {
+    for (const f of ctx.forms) {
+      evidence.push({
+        id: f.id,
+        type: "form",
+        capturedAt: domAt,
+        source: "playwright:document.forms",
+        locator: `form[action=${f.action || "(当前页)"}]`,
+        excerpt:
+          `action=${f.action || "(空，提交到当前页)"} method=${f.method} ` +
+          `密码框=${f.hasPasswordInput ? "有" : "无"} 输入项=${f.inputCount}`,
+      });
+    }
+  } else {
+    evidence.push({
+      id: "ev-form-none",
+      type: "form",
+      capturedAt: domAt,
+      source: "playwright:document.forms",
+      locator: "document.forms",
+      excerpt: "页面未发现表单",
+    });
+  }
+
+  if (ctx.externalScriptDomains.length > 0) {
     evidence.push({
       id: "ev-scripts",
       type: "request",
-      capturedAt,
-      source: "playwright:script[src]",
-      excerpt: `第三方域脚本：${externalScriptDomains.join(", ")}`,
+      capturedAt: domAt,
+      source: "playwright:script[src] 与最终页主域比对",
+      locator: ctx.registrableDomain,
+      excerpt: `第三方域脚本：${ctx.externalScriptDomains.join(", ")}`,
     });
   }
 
-  const shotEv = [...page.evidence, ...(page.partialEvidence ?? [])].find((e) => e.type === "screenshot");
-  const screenshotBase64 = shotEv && shotEv.type === "screenshot" ? shotEv.data : undefined;
-  if (screenshotBase64) {
-    const artifactId = `art-shot-${crypto.randomUUID().slice(0, 8)}`;
-    artifactIds.push(artifactId);
+  // 闸门③视觉：答复作为文本证据；截图本体只留占位与 artifactId
+  if (ctx.visionAnswer !== undefined) {
+    evidence.push({
+      id: "ev-vision",
+      type: "text",
+      capturedAt: now,
+      source: "vision:视觉核验模型对截图的答复",
+      locator: "整页截图",
+      excerpt: clip(ctx.visionAnswer),
+    });
+  } else {
+    evidence.push({
+      id: "ev-vision-none",
+      type: "text",
+      capturedAt: now,
+      source: "vision:skipped",
+      locator: "整页截图（缺失）",
+      excerpt: "无截图视觉证据（取证未覆盖或页面无截图）",
+    });
+  }
+  if (ctx.screenshot) {
     evidence.push({
       id: "ev-screenshot",
       type: "screenshot",
-      capturedAt,
+      capturedAt: ctx.screenshot.capturedAt,
       source: "playwright:page.screenshot(fullPage)",
-      locator: artifactId,
-      excerpt: "[截图 base64 已存 artifacts]",
+      locator: `fullPage ${ctx.screenshot.width}x${ctx.screenshot.height}`,
+      excerpt: SCREENSHOT_EXCERPT,
     });
   }
 
-  if (page.warnings.length > 0) {
-    evidence.push({ id: "ev-warnings", type: "request", capturedAt, source: "fetch-page:warnings", excerpt: page.warnings.join("; ") });
-    gaps.push(...page.warnings);
+  if (ctx.warnings.length > 0) {
+    evidence.push({
+      id: "ev-warnings",
+      type: "text",
+      capturedAt: now,
+      source: "orchestrator:warnings",
+      locator: "coverage",
+      excerpt: `取证告警：${clip(ctx.warnings.join("; "))}`,
+    });
   }
 
-  // ---- 闸门③ 视觉核验 -------------------------------------------------------
-  if (screenshotBase64) {
-    try {
-      const vision = await visionChat(visionAnalysisPrompt(), screenshotBase64, { maxTokens: 500 });
-      visionAnswer = vision.content;
-      evidence.push({
-        id: "ev-vision",
-        type: "screenshot",
-        capturedAt,
-        source: "agnes:visionChat(visionAnalysisPrompt)",
-        excerpt: vision.content,
-      });
-      emitStep("gate3-vision", "completed", `视觉核验完成（${vision.content.length} 字）`);
-    } catch (err) {
-      emitStep("gate3-vision", "skipped", undefined, `视觉模型调用失败：${err instanceof Error ? err.message : String(err)}`);
-      gaps.push("视觉核验未完成");
-    }
-  } else {
-    emitStep("gate3-vision", "skipped", undefined, "无截图可用");
-    gaps.push("无截图视觉证据");
-  }
-
-  // ---- 闸门③ 主分析 -------------------------------------------------------
   const analyzerInput: AnalyzerEvidenceInput = {
-    url: staticResult.normalizedUrl,
-    registrableDomain: staticResult.registrableDomain,
-    staticFindings: staticResult.findings.map((f) => ({ id: f.id, title: f.title, detail: f.detail, weight: f.weight })),
-    staticScore: staticResult.score,
-    redirectChain: page.redirectChain,
-    pageTitle,
-    pageText,
-    forms: forms.map((f, i) => ({
-      id: `ev-form-${i + 1}`,
-      action: f.action,
-      method: f.method,
-      hasPasswordInput: f.hasPasswordInput,
-      inputCount: f.inputCount,
-    })),
-    externalScriptDomains,
-    visionAnswer,
-    warnings: page.warnings,
+    url: ctx.displayUrl,
+    registrableDomain: ctx.registrableDomain,
+    staticFindings: ctx.staticFindings,
+    staticScore: ctx.staticScore,
+    redirectChain: ctx.redirectChain,
+    pageTitle: ctx.pageTitle,
+    pageText: ctx.pageText,
+    forms: ctx.forms,
+    externalScriptDomains: ctx.externalScriptDomains,
+    visionAnswer: ctx.visionAnswer,
+    warnings: ctx.warnings,
   };
+  return { evidence, analyzerInput };
+}
 
-  let assessment: Assessment | null = null;
-  if (page.blocked || (page.error && !textEv)) {
-    emitStep("gate3-analyzer", "skipped", undefined, "取证数据不足以支撑分析");
-    gaps.push("主分析未执行（取证不足）");
-  } else {
+// ---------------------------------------------------------------------------
+// 模型输出解析与归一化（抗围栏 / 抗废话 / 抗幻觉证据 id）
+// ---------------------------------------------------------------------------
+
+/** 剥掉模型可能输出的 ```json 围栏 */
+function stripJsonFences(raw: string): string {
+  const text = raw.trim();
+  const fence = /^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/.exec(text);
+  return fence ? fence[1].trim() : text;
+}
+
+/** 模型输出 → Assessment；risk 枚举非法或结构不符时返回 null（调用方负责重试） */
+function parseAssessment(raw: string, evidenceIds: Set<string>): Assessment | null {
+  const text = stripJsonFences(raw);
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    // 兜底：模型在 JSON 前后带了说明文字时，截取首尾花括号之间的内容再试一次
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start < 0 || end <= start) return null;
     try {
-      assessment = await runAnalyzer(analyzerInput);
-      if (assessment) {
-        emitStep("gate3-analyzer", "completed", `结论 risk=${assessment.risk}，findings ${assessment.findings.length} 条`);
-      } else {
-        emitStep("gate3-analyzer", "failed", undefined, "模型两轮输出均无法解析为合法 JSON");
-        gaps.push("AI 分析输出不合法，已使用兜底结论");
-      }
-    } catch (err) {
-      emitStep("gate3-analyzer", "failed", undefined, `模型调用失败：${err instanceof Error ? err.message : String(err)}`);
-      gaps.push("AI 分析调用失败");
+      json = JSON.parse(text.slice(start, end + 1));
+    } catch {
+      return null;
     }
   }
+  return normalizeAssessment(json, evidenceIds);
+}
 
-  const fallback: Assessment = {
+function normalizeAssessment(raw: unknown, evidenceIds: Set<string>): Assessment | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+
+  const risk = obj.risk;
+  if (typeof risk !== "string" || !RISK_LEVELS.includes(risk as RiskLevel)) return null;
+
+  const sufficiency =
+    typeof obj.evidenceSufficiency === "string" &&
+    (EVIDENCE_SUFFICIENCIES as readonly string[]).includes(obj.evidenceSufficiency)
+      ? (obj.evidenceSufficiency as Assessment["evidenceSufficiency"])
+      : "partial";
+
+  return {
+    risk: risk as RiskLevel,
+    evidenceSufficiency: sufficiency,
+    gaps: toStringArray(obj.gaps),
+    summary:
+      typeof obj.summary === "string" && obj.summary.trim().length > 0
+        ? obj.summary.trim()
+        : "（模型未给出摘要）",
+    findings: normalizeFindings(obj.findings, evidenceIds),
+    unknowns: toStringArray(obj.unknowns),
+    recommendedAction:
+      typeof obj.recommendedAction === "string" && obj.recommendedAction.trim().length > 0
+        ? obj.recommendedAction.trim()
+        : "证据不足，建议人工复核。",
+  };
+}
+
+/**
+ * findings 归一化。模型偶尔会产出重复 id、空 statement、或不存在的 evidenceId，
+ * 这里做防御性清洗，保证快照内部自洽（validateSnapshot 可通过）：
+ * - 空 statement 的 finding 直接丢弃；
+ * - id 缺失/重复时重新编号；
+ * - evidenceIds 只保留证据池（或 finding 池）里真实存在的 id；
+ * - observed_fact / reference 清洗后一条证据都不剩 → 降级为 inference，
+   避免「无依据的观察事实」进入报告。
+ */
+function normalizeFindings(raw: unknown, evidenceIds: Set<string>): Finding[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const draft: Finding[] = [];
+  const usedIds = new Set<string>();
+
+  list.forEach((item, i) => {
+    if (!item || typeof item !== "object") return;
+    const f = item as Record<string, unknown>;
+    const statement = typeof f.statement === "string" ? f.statement.trim() : "";
+    if (!statement) return;
+    let id = typeof f.id === "string" && f.id.trim().length > 0 ? f.id.trim() : `f${i + 1}`;
+    if (usedIds.has(id)) id = `${id}-${i + 1}`;
+    usedIds.add(id);
+    const kind: FindingKind =
+      typeof f.kind === "string" && (FINDING_KINDS as readonly string[]).includes(f.kind)
+        ? (f.kind as FindingKind)
+        : "inference";
+    draft.push({
+      id,
+      statement,
+      kind,
+      evidenceIds: toStringArray(f.evidenceIds),
+      alternativeExplanations: toStringArray(f.alternativeExplanations),
+    });
+  });
+
+  return draft.map((f) => {
+    if (f.kind === "inference") {
+      // inference 可引用其他 finding 形成推理链，但不得自引用、不得引用不存在的 id
+      return {
+        ...f,
+        evidenceIds: f.evidenceIds.filter((r) => r !== f.id && (evidenceIds.has(r) || usedIds.has(r))),
+      };
+    }
+    const refs = f.evidenceIds.filter((r) => evidenceIds.has(r));
+    if (refs.length === 0) return { ...f, kind: "inference" as const, evidenceIds: [] };
+    return { ...f, evidenceIds: refs };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 兜底报告（模型不可用 / 输出不可解析）
+// ---------------------------------------------------------------------------
+
+/** 闸门③主分析失败时的纯规则兜底：risk="unknown"，缺口如实写明 */
+function fallbackAssessment(ctx: ScanContext, reason: string): Assessment {
+  const findings: Finding[] = ctx.staticFindings.map((f, i) => ({
+    id: `f-static-${i + 1}`,
+    statement: `${f.title}：${f.detail}`,
+    kind: "observed_fact" as const,
+    evidenceIds: [f.id],
+    alternativeExplanations: [],
+  }));
+  if (findings.length === 0) {
+    findings.push({
+      id: "f-static-none",
+      statement: "闸门①静态规则未命中任何项",
+      kind: "observed_fact",
+      evidenceIds: ["ev-static"],
+      alternativeExplanations: [],
+    });
+  }
+  return {
     risk: "unknown",
     evidenceSufficiency: "insufficient",
-    gaps,
-    summary: "AI 分析不可用，已返回取证事实与兜底结论；请结合证据人工判断。",
-    findings: [],
-    unknowns: ["AI 汇总分析未完成，风险等级未判定"],
-    recommendedAction: "建议暂勿输入任何账号密码，并通过官方渠道独立核实该网站。",
+    gaps: [...ctx.warnings, reason],
+    summary: `AI 主分析未产出可用结论（${reason}），以下仅为闸门①静态规则观察结果，未做风险定级。`,
+    findings,
+    unknowns: ["页面的真实身份与行为未经 AI 取证核验，无法判断"],
+    recommendedAction: "证据不足，建议人工复核或稍后重试；切勿仅凭静态规则结果下结论。",
   };
+}
 
-  const snapshot: CaseSnapshot = {
-    id: crypto.randomUUID(),
-    createdAt: capturedAt,
-    inputSummary: { displayUrl: staticResult.normalizedUrl, registrableDomain: staticResult.registrableDomain },
-    versions: buildVersions(),
-    originalAssessment: assessment ?? fallback,
+// ---------------------------------------------------------------------------
+// 快照组装与收尾校验
+// ---------------------------------------------------------------------------
+
+function buildSnapshot(
+  input: { displayUrl: string; registrableDomain: string },
+  assessment: Assessment,
+  coverage: CoverageEntry[],
+  evidence: EvidenceItem[],
+  artifactIds: string[],
+): CaseSnapshot {
+  return {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    inputSummary: {
+      displayUrl: input.displayUrl.trim() || "(未提供 URL)",
+      registrableDomain: input.registrableDomain,
+    },
+    versions: {
+      reportSchema: "1.0",
+      model: process.env.VERIPAGE_TEXT_MODEL ?? "agnes-2.5-flash",
+      prompt: PROMPT_VERSION,
+      policy: "1.0",
+      knowledge: "none-v1",
+    },
+    originalAssessment: assessment,
     coverage,
     evidence,
     artifactIds,
   };
-  return finish(snapshot, onEvent, emitStep);
 }
 
-function buildVersions(): CaseSnapshot["versions"] {
-  return {
-    reportSchema: "1.0",
-    model: process.env.VERIPAGE_TEXT_MODEL ?? "agnes-2.5-flash",
-    prompt: PROMPT_VERSION,
-    policy: "1.0",
-    knowledge: "none-v1",
+/**
+ * 统一收尾：跑 validateSnapshot → 记 validate 覆盖条目 → 需要时给 summary 打前缀。
+ * 校验不通过也照样返回快照（调用方决定怎么展示），但 ok=false 时 summary 加
+ * "[校验未过]" 前缀，避免一份自相矛盾的报告被当成干净结论呈现。
+ */
+function finalizeSnapshot(snapshot: CaseSnapshot, emitStep: EmitStep): CaseSnapshot {
+  const result = validateSnapshot(snapshot);
+  const hardErrors = result.errors.filter((e) => !e.startsWith("[warn]"));
+  const state: StepState = result.ok ? "completed" : hardErrors.length > 0 ? "failed" : "partial";
+  const detail = result.errors.slice(0, 3).join(" | ");
+
+  if (!result.ok) {
+    snapshot.originalAssessment = {
+      ...snapshot.originalAssessment,
+      summary: `[校验未过] ${snapshot.originalAssessment.summary}`,
+    };
+  }
+  // validate 条目在快照组装之后才产生，直接推进同一 coverage 数组（快照持有其引用）
+  snapshot.coverage.push({
+    step: STEP_VALIDATE,
+    state,
+    ...(result.ok ? {} : { reason: detail || "校验未通过" }),
+  });
+  emitStep(
+    STEP_VALIDATE,
+    state,
+    result.ok ? "快照结构与证据绑定校验通过" : detail,
+    result.ok ? undefined : detail || "校验未通过",
+  );
+  return snapshot;
+}
+
+// ---------------------------------------------------------------------------
+// 主流程
+// ---------------------------------------------------------------------------
+
+/**
+ * 执行一次完整检测。
+ * @param rawUrl   用户提交的 URL
+ * @param onEvent 过程事件回调（step 事件；report 事件由路由层发送）
+ * @returns        快照。即使部分步骤失败 / 校验未过也一定返回可展示的快照。
+ */
+export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void): Promise<CaseSnapshot> {
+  const coverage: CoverageEntry[] = [];
+  /** 发一个过程事件，同时把它聚合进快照的「检测覆盖」维度 */
+  const emitStep: EmitStep = (step, state, detail, reason) => {
+    coverage.push({ step, state, ...(reason !== undefined ? { reason } : {}) });
+    onEvent({
+      type: "step",
+      step,
+      state,
+      ...(detail !== undefined ? { detail } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+    });
   };
-}
 
-/** 终点：校验 → 修正 summary → 发 report 事件 → 返回 */
-function finish(
-  snapshot: CaseSnapshot,
-  onEvent: (ev: ScanEvent) => void,
-  emitStep: (step: ScanStepName, state: CoverageEntry["state"], detail?: string, reason?: string) => void,
-): CaseSnapshot {
-  const verdict = validateSnapshot(snapshot);
-  if (verdict.ok) {
-    emitStep("validate", "completed", "快照校验通过");
+  // ---- S0 访问边界：先于一切网络访问 --------------------------------------
+  const guard = await assertPublicHttpUrl(rawUrl);
+  if (!guard.allowed) {
+    const reason = guard.reason ?? "S0 访问边界拒绝";
+    emitStep(STEP_S0, "completed", undefined, reason);
+    // 阻断路径：后续采集步骤全部标记 skipped，绝不发起任何网络访问
+    for (const step of [STEP_STATIC, STEP_FETCH, STEP_VISION, STEP_ANALYZER]) {
+      emitStep(step, "skipped", undefined, BLOCKED_REASON);
+    }
+    const now = new Date().toISOString();
+    const evidence: EvidenceItem[] = [
+      {
+        id: "ev-url",
+        type: "url",
+        capturedAt: now,
+        source: "user-input",
+        locator: rawUrl.trim(),
+        excerpt: rawUrl.trim() || "(未提供 URL)",
+      },
+    ];
+    const assessment: Assessment = {
+      risk: "unknown",
+      evidenceSufficiency: "insufficient",
+      gaps: [
+        `S0 访问边界拒绝访问：${reason}`,
+        "闸门①静态分析、闸门②沙箱代访、闸门③AI 取证均未执行，无任何页面证据",
+      ],
+      summary: `未发起检测：${reason}`,
+      findings: [
+        {
+          id: "f1",
+          statement: `访问边界拒绝访问该 URL：${reason}`,
+          kind: "observed_fact",
+          evidenceIds: ["ev-url"],
+          alternativeExplanations: [],
+        },
+      ],
+      unknowns: ["该地址是否为可公开访问的有效站点未知（访问边界已拒绝，无法取证）"],
+      recommendedAction:
+        "内网、回环、链路本地等保留地址不在检测范围内；如确需检测，请更换为可公开访问的 http/https 地址。",
+    };
+    return finalizeSnapshot(
+      buildSnapshot(
+        { displayUrl: rawUrl.trim(), registrableDomain: safeRegistrableDomain(rawUrl) },
+        assessment,
+        coverage,
+        evidence,
+        [],
+      ),
+      emitStep,
+    );
+  }
+  emitStep(
+    STEP_S0,
+    "completed",
+    `访问边界放行（解析地址：${(guard.resolvedIps ?? []).join(", ") || "未知"}）`,
+  );
+
+  // ---- 闸门①：URL 静态分析（纯确定性规则，不访问网络） --------------------
+  const staticReport = analyzeUrlStatic(rawUrl);
+  emitStep(
+    STEP_STATIC,
+    "completed",
+    `命中 ${staticReport.findings.length} 项，静态分 ${staticReport.score}`,
+  );
+
+  // ---- 闸门②：沙箱代访 ----------------------------------------------------
+  const page = await fetchPage(rawUrl);
+  const warnings: string[] = [];
+  let pageEvidence: PageEvidence[] = [];
+  let redirectChain: string[] = [staticReport.normalizedUrl];
+
+  if (page.blocked) {
+    // 理论上 S0 已放行不会走到这里；仍然只降级不抛异常，靠 gaps 把真相写清楚
+    warnings.push(`闸门②被访问边界拒绝：${page.reason ?? "原因未说明"}`);
+    emitStep(STEP_FETCH, "partial", undefined, page.reason ?? "访问边界拒绝");
   } else {
-    const hard = verdict.errors.filter((e) => !e.startsWith("[warn]"));
-    if (hard.length > 0) {
-      emitStep("validate", "failed", hard.slice(0, 3).join("；"));
-      snapshot.originalAssessment.summary = `[校验未过] ${snapshot.originalAssessment.summary}`;
+    if (page.error) {
+      warnings.push(`闸门②沙箱代访未完成：${page.error}`);
+      emitStep(STEP_FETCH, "partial", undefined, page.error);
     } else {
-      emitStep("validate", "partial", verdict.errors.slice(0, 2).join("；"));
+      emitStep(
+        STEP_FETCH,
+        "completed",
+        `跳转链 ${page.redirectChain.length} 跳，证据 ${page.evidence.length} 项`,
+      );
+    }
+    warnings.push(...page.warnings);
+    pageEvidence = page.evidence.length > 0 ? page.evidence : (page.partialEvidence ?? []);
+    if (page.redirectChain.length > 0) redirectChain = page.redirectChain;
+  }
+
+  // 从闸门②证据里取出主分析需要的字段（id 与证据池同源）
+  const textEvidence = pageEvidence.find((e) => e.type === "text");
+  const formsEvidence = pageEvidence.find((e) => e.type === "forms");
+  const scriptsEvidence = pageEvidence.find((e) => e.type === "externalScripts");
+  const screenshotEvidence = pageEvidence.find((e) => e.type === "screenshot");
+
+  const pageTitle = textEvidence && textEvidence.type === "text" ? textEvidence.title : undefined;
+  const pageText = textEvidence && textEvidence.type === "text" ? textEvidence.text : undefined;
+  const forms =
+    formsEvidence && formsEvidence.type === "forms"
+      ? formsEvidence.forms.map((f, i) => ({
+          id: `ev-form-${i + 1}`,
+          action: f.action,
+          method: f.method,
+          hasPasswordInput: f.hasPasswordInput,
+          inputCount: f.inputCount,
+        }))
+      : [];
+  const externalScriptDomains =
+    scriptsEvidence && scriptsEvidence.type === "externalScripts" ? scriptsEvidence.domains : [];
+
+  // ---- 闸门③视觉：截图交给视觉模型，失败不阻断 ----------------------------
+  let visionAnswer: string | undefined;
+  const shot = screenshotEvidence && screenshotEvidence.type === "screenshot" ? screenshotEvidence : undefined;
+  if (!shot) {
+    emitStep(STEP_VISION, "skipped", undefined, "未采集到整页截图，跳过视觉核验");
+  } else {
+    try {
+      const res = await visionChat(visionAnalysisPrompt(), shot.data);
+      const answer = res.content.trim();
+      if (answer.length > 0) {
+        visionAnswer = answer;
+        emitStep(STEP_VISION, "completed", `视觉核验完成（答复 ${answer.length} 字）`);
+      } else {
+        emitStep(STEP_VISION, "partial", undefined, "视觉模型返回空内容");
+      }
+    } catch (err) {
+      emitStep(STEP_VISION, "skipped", undefined, `视觉核验失败：${errMsg(err)}`);
     }
   }
-  onEvent({ type: "report", snapshot });
-  return snapshot;
+
+  // ---- 闸门③主分析：先建 evidence，再用同一份数据生成 user 消息 ------------
+  const ctx: ScanContext = {
+    displayUrl: staticReport.normalizedUrl,
+    registrableDomain: staticReport.registrableDomain,
+    staticFindings: staticReport.findings,
+    staticScore: staticReport.score,
+    redirectChain,
+    pageTitle,
+    pageText,
+    forms,
+    externalScriptDomains,
+    visionAnswer,
+    warnings,
+    domCapturedAt: textEvidence?.capturedAt,
+    screenshot: shot
+      ? {
+          capturedAt: shot.capturedAt,
+          width: shot.width,
+          height: shot.height,
+          artifactId: `art-${randomUUID()}`,
+        }
+      : undefined,
+  };
+
+  const { evidence, analyzerInput } = buildEvidence(ctx);
+  const evidenceIds = new Set(evidence.map((e) => e.id));
+
+  const messages: ChatMessage[] = [
+    { role: "system", content: analyzerSystemPrompt() },
+    { role: "user", content: buildAnalyzerUserMessage(analyzerInput) },
+  ];
+
+  let assessment: Assessment | null = null;
+  let failure: string | undefined;
+  for (let attempt = 1; attempt <= 2 && !assessment; attempt += 1) {
+    let content: string;
+    try {
+      const res = await chat(messages, { temperature: 0.2, maxTokens: 2000 });
+      content = res.content;
+    } catch (err) {
+      failure = `主分析器调用失败：${errMsg(err)}`;
+      break;
+    }
+    assessment = parseAssessment(content, evidenceIds);
+    if (!assessment) {
+      if (attempt === 1) {
+        // 输出不可解析：在 messages 末尾追加一条纠偏 user 消息，重试一次
+        messages.push({ role: "user", content: RETRY_HINT });
+      } else {
+        failure = "主分析器两次输出均无法解析为合法 JSON（JSON 损坏或 risk 枚举非法）";
+      }
+    }
+  }
+
+  if (assessment) {
+    emitStep(
+      STEP_ANALYZER,
+      "completed",
+      `风险=${assessment.risk}，findings=${assessment.findings.length} 条，充分度=${assessment.evidenceSufficiency}`,
+    );
+  } else {
+    emitStep(STEP_ANALYZER, "failed", undefined, failure);
+    assessment = fallbackAssessment(ctx, failure ?? "主分析器未产出可用结论");
+  }
+
+  // ---- 组装快照 + 校验 ----------------------------------------------------
+  const artifactIds = ctx.screenshot ? [ctx.screenshot.artifactId] : [];
+  return finalizeSnapshot(
+    buildSnapshot(
+      { displayUrl: staticReport.normalizedUrl, registrableDomain: staticReport.registrableDomain },
+      assessment,
+      coverage,
+      evidence,
+      artifactIds,
+    ),
+    emitStep,
+  );
 }

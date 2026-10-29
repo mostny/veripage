@@ -1,60 +1,110 @@
 /**
- * 编排器冒烟：真实跑通 S0→闸门①②③→快照校验 全链路
+ * 检测编排器冒烟测试
  * 运行：node --env-file=.env eval/orchestrator.smoke.ts
- * 用例 1 会真实调用 Agnes API 与 Playwright（免费额度，正常跑）
+ *
+ * 用例 1（https://example.com）会真实走完整流水线：
+ *   S0 访问边界 → 闸门①静态规则 → 闸门② Playwright 沙箱代访 → 闸门③视觉 + 主分析（Agnes API）→ validate
+ * 用例 2（http://192.168.1.1）走 S0 拒绝路径，不发起任何网络访问。
  */
 import { runScan, type ScanEvent } from "../lib/agent/orchestrator.ts";
 import { validateSnapshot } from "../lib/evidence/validate.ts";
-import type { CaseSnapshot } from "../lib/evidence/types.ts";
+import { RISK_LEVELS } from "../lib/evidence/types.ts";
 
 let fail = 0;
-const check = (name: string, ok: boolean, detail = "") => {
+const check = (name: string, ok: boolean) => {
   if (!ok) fail += 1;
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` | ${detail}` : ""}`);
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
 };
 
-const ALL_STEPS = ["s0-guard", "gate1-static", "gate2-fetch", "gate3-vision", "gate3-analyzer", "validate"] as const;
+type StepEvent = Extract<ScanEvent, { type: "step" }>;
+const stepEvents = (events: ScanEvent[]): StepEvent[] =>
+  events.filter((e): e is StepEvent => e.type === "step");
 
-async function collect(url: string): Promise<{ events: ScanEvent[]; snapshot: CaseSnapshot }> {
-  const events: ScanEvent[] = [];
-  const snapshot = await runScan(url, (ev) => events.push(ev));
-  return { events, snapshot };
-}
-
-// ---- 用例 1：公网站点全链路 ----
-console.log("=== 用例 1：https://example.com ===");
-const r1 = await collect("https://example.com");
-for (const ev of r1.events) {
-  if (ev.type === "step") {
-    console.log(`  [step] ${ev.step} → ${ev.state}${ev.reason ? `（${ev.reason}）` : ""}`);
+/** 一行摘要打印每个事件 */
+function describeEvent(ev: ScanEvent): string {
+  if (ev.type === "report") {
+    return `report  snapshot=${ev.snapshot.id} risk=${ev.snapshot.originalAssessment.risk}`;
   }
+  const parts = [`${ev.step}=${ev.state}`];
+  if (ev.detail) parts.push(ev.detail);
+  if (ev.reason) parts.push(`reason=${ev.reason}`);
+  return parts.join("  ");
 }
-const stepEvents = r1.events.filter((e): e is Extract<ScanEvent, { type: "step" }> => e.type === "step");
-check("step 事件 ≥5", stepEvents.length >= 5, `实际 ${stepEvents.length}`);
-for (const name of ALL_STEPS) {
-  check(`包含步骤 ${name}`, stepEvents.some((e) => e.step === name));
-}
-const v1 = validateSnapshot(r1.snapshot);
-const hard1 = v1.errors.filter((e) => !e.startsWith("[warn]"));
-check("快照无硬校验错误", hard1.length === 0, hard1.slice(0, 2).join("；"));
-check("risk ∈ 四枚举", ["high", "suspicious", "no_significant_risk", "unknown"].includes(r1.snapshot.originalAssessment.risk), r1.snapshot.originalAssessment.risk);
-check("risk 符合 example.com 预期", ["no_significant_risk", "unknown"].includes(r1.snapshot.originalAssessment.risk));
-check("evidence ≥ 4", r1.snapshot.evidence.length >= 4, `实际 ${r1.snapshot.evidence.length}`);
-check("versions.prompt 已记录", r1.snapshot.versions.prompt.length > 0, r1.snapshot.versions.prompt);
-console.log(`  summary: ${r1.snapshot.originalAssessment.summary.slice(0, 80)}`);
-console.log(`  findings: ${r1.snapshot.originalAssessment.findings.length} 条 | unknowns: ${r1.snapshot.originalAssessment.unknowns.length}`);
 
-// ---- 用例 2：S0 阻断路径 ----
-console.log("=== 用例 2：http://192.168.1.1（S0 阻断） ===");
-const r2 = await collect("http://192.168.1.1");
-const step2 = r2.events.filter((e): e is Extract<ScanEvent, { type: "step" }> => e.type === "step");
-for (const ev of step2) console.log(`  [step] ${ev.step} → ${ev.state}${ev.reason ? `（${ev.reason}）` : ""}`);
-check("gate2-fetch 被跳过", step2.some((e) => e.step === "gate2-fetch" && e.state === "skipped"));
-check("gate3-* 被跳过", step2.some((e) => e.step === "gate3-analyzer" && e.state === "skipped"));
-check("阻断路径 risk=unknown", r2.snapshot.originalAssessment.risk === "unknown");
-const v2 = validateSnapshot(r2.snapshot);
-const hard2 = v2.errors.filter((e) => !e.startsWith("[warn]"));
-check("阻断快照无硬校验错误", hard2.length === 0, hard2.slice(0, 2).join("；"));
+const STEP_NAMES = ["s0-guard", "gate1-static", "gate2-fetch", "gate3-vision", "gate3-analyzer", "validate"];
+
+// --- 用例 1：公网站点完整检测 ---------------------------------------------
+console.log("=== 用例 1：https://example.com 完整检测 ===");
+const events1: ScanEvent[] = [];
+const startedAt = Date.now();
+const snapshot = await runScan("https://example.com", (ev) => {
+  events1.push(ev);
+  console.log(`  · ${describeEvent(ev)}`);
+});
+console.log(`  耗时 ${Date.now() - startedAt}ms`);
+
+const steps1 = stepEvents(events1);
+check("step 事件 ≥5", steps1.length >= 5);
+for (const name of STEP_NAMES) {
+  check(`包含 step ${name}`, steps1.some((s) => s.step === name));
+}
+
+const validation = validateSnapshot(snapshot);
+const hardErrors = validation.errors.filter((e) => !e.startsWith("[warn]"));
+check("validateSnapshot 硬错误为 0", hardErrors.length === 0);
+if (validation.errors.length > 0) {
+  console.log(`  校验信息（${validation.errors.length} 条）：${validation.errors.join(" | ")}`);
+} else {
+  console.log("  校验信息：无");
+}
+
+check("risk 属于四枚举", RISK_LEVELS.includes(snapshot.originalAssessment.risk));
+check(
+  "risk 对 example.com 合理（no_significant_risk 或 unknown）",
+  snapshot.originalAssessment.risk === "no_significant_risk" ||
+    snapshot.originalAssessment.risk === "unknown",
+);
+check("evidence.length ≥ 4", snapshot.evidence.length >= 4);
+
+console.log(
+  `  risk=${snapshot.originalAssessment.risk} 充分度=${snapshot.originalAssessment.evidenceSufficiency} ` +
+    `findings=${snapshot.originalAssessment.findings.length} evidence=${snapshot.evidence.length} ` +
+    `artifacts=${snapshot.artifactIds.length} coverage=${snapshot.coverage.length}`,
+);
+console.log(`  summary: ${snapshot.originalAssessment.summary}`);
+
+// --- 用例 2：内网地址走 S0 拒绝路径 ---------------------------------------
+console.log("=== 用例 2：http://192.168.1.1 S0 拒绝路径 ===");
+const events2: ScanEvent[] = [];
+const snapshot2 = await runScan("http://192.168.1.1", (ev) => {
+  events2.push(ev);
+  console.log(`  · ${describeEvent(ev)}`);
+});
+
+const steps2 = stepEvents(events2);
+const stateOf = (name: string): string | undefined => steps2.find((s) => s.step === name)?.state;
+const reasonOf = (name: string): string | undefined => steps2.find((s) => s.step === name)?.reason;
+
+check("s0-guard completed", stateOf("s0-guard") === "completed");
+check("gate2-fetch skipped", stateOf("gate2-fetch") === "skipped");
+check("gate3-vision skipped", stateOf("gate3-vision") === "skipped");
+check("gate3-analyzer skipped", stateOf("gate3-analyzer") === "skipped");
+check("跳过原因注明访问边界拒绝", reasonOf("gate2-fetch") === "访问边界拒绝");
+check("risk=unknown", snapshot2.originalAssessment.risk === "unknown");
+
+const validation2 = validateSnapshot(snapshot2);
+const hardErrors2 = validation2.errors.filter((e) => !e.startsWith("[warn]"));
+check("拒绝路径快照硬错误为 0", hardErrors2.length === 0);
+if (validation2.errors.length > 0) {
+  console.log(`  校验信息（${validation2.errors.length} 条）：${validation2.errors.join(" | ")}`);
+} else {
+  console.log("  校验信息：无");
+}
+check("快照仍可组装返回", snapshot2.id.length > 0 && snapshot2.evidence.length >= 1);
+console.log(
+  `  risk=${snapshot2.originalAssessment.risk} evidence=${snapshot2.evidence.length} ` +
+    `gaps=${JSON.stringify(snapshot2.originalAssessment.gaps)}`,
+);
 
 console.log(fail === 0 ? "ALL-PASS" : `FAIL（${fail} 例未过）`);
 process.exit(fail === 0 ? 0 : 1);
