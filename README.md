@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 网鉴 VeriPage
 
-## Getting Started
+> 核验网页「声称的身份」与「实际行为」是否一致的 AI 安全检测台 —— 第九届传智杯 AI WEB 网页开发挑战赛参赛作品。
 
-First, run the development server:
+## 定位
+
+不是"AI 查链接工具"，而是**证据驱动的身份一致性核验系统**：
+
+- **四问框架**：身份声明 / 视觉语义 / 技术事实 / 合法解释
+- **三道闸门**：字符串分析（不访问）→ 沙箱代访（Playwright）→ AI 取证（视觉+语义+案例库）
+- **证据三级标注**：观察事实 / 风险推断 / 未知事项，每条结论必须绑定证据
+- **负责任 AI**：可解释、无依据拒答、"未检出 ≠ 安全"边界声明、人工复核入口
+
+## 快速开始
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+cp .env.example .env   # 填入你的 Agnes API Key
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 目录结构
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+app/          页面与 API Routes（检测过程 SSE 流式）
+lib/          agent 自适应编排 / tools 六工具 / evidence 证据模型 / prompts
+knowledge/    钓鱼案例库 + 官方域名核验白名单（带来源）
+testpages/    自建可控靶场页（仿冒/注入样本，标注演示用）
+eval/         对照实验脚本 + 测试集 + 结果
+docs/         大题框架 / 模型能力实测 / 技术文档源
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+详细设计见 [docs/framework.md](docs/framework.md)。
 
-## Learn More
+## 团队
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+传智杯参赛队伍（同校 1-3 人），开发过程全程保留细粒度 Git 历史。
