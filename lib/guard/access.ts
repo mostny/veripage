@@ -151,6 +151,15 @@ export function isPrivateIp(ip: string): boolean {
   if (g0 === 0 && g1 === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0 && g[6] === 0 && g[7] === 1) {
     return true; // ::1 回环
   }
+  // IPv4 映射 / NAT64 等地址：拆出内层 32 位按 IPv4 规则判
+  // 必须同时覆盖点分写法（::ffff:a.b.c.d）与十六进制写法（::ffff:7f00:1 = 127.0.0.1，
+  // 浏览器与服务端同样接受——此前只拦点分格式，构成 SSRF 绕过）
+  const isV4Embedded =
+    g0 === 0 && g1 === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && (g[5] === 0xffff || g[5] === 0);
+  if (isV4Embedded) {
+    const inner = [(g[6] >> 8) & 0xff, g[6] & 0xff, (g[7] >> 8) & 0xff, g[7] & 0xff];
+    if (isPrivateIpv4(inner)) return true;
+  }
   if ((g0 & 0xfe00) === 0xfc00) return true; // fc00::/7 唯一本地
   if ((g0 & 0xffc0) === 0xfe80) return true; // fe80::/10 链路本地
   if ((g0 & 0xff00) === 0xff00) return true; // ff00::/8 组播

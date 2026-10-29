@@ -17,9 +17,12 @@ const ipCases: Array<[string, boolean]> = [
   ["172.16.0.1", true],
   ["8.8.8.8", false],
   ["100.64.1.1", true], // CGNAT
-  ["::ffff:192.168.0.1", true], // IPv4 映射
+  ["::ffff:192.168.0.1", true], // IPv4 映射（点分写法）
   ["169.254.169.254", true], // 云元数据
   ["1.1.1.1", false],
+  ["::ffff:7f00:1", true], // IPv4 映射（十六进制写法 = 127.0.0.1，SSRF 绕过回归）
+  ["::ffff:a00:1", true], // IPv4 映射（十六进制 = 10.0.0.1）
+  ["::ffff:8.8.8.8", false], // 映射到公网地址仍放行
 ];
 for (const [ip, expect] of ipCases) check(`isPrivateIp(${ip})`, isPrivateIp(ip), expect);
 
