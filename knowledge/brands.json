@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "verifiedAt": "2026-10-29",
+  "description": "已核验品牌官方域白名单。用于「合法解释」与「身份声明核验」：页面声称属于某品牌时，其域名是否真的是该品牌官方域。注意：未收录 ≠ 未授权，只是本次核验资料中没有。",
+  "entries": [
+    { "id": "brand-taobao", "name": "淘宝网", "officialDomains": ["taobao.com", "tmall.com"], "category": "电商", "source": "官网公开信息" },
+    { "id": "brand-alipay", "name": "支付宝", "officialDomains": ["alipay.com"], "category": "支付", "source": "官网公开信息" },
+    { "id": "brand-jd", "name": "京东", "officialDomains": ["jd.com"], "category": "电商", "source": "官网公开信息" },
+    { "id": "brand-pinduoduo", "name": "拼多多", "officialDomains": ["pinduoduo.com", "yangkeduo.com"], "category": "电商", "source": "官网公开信息" },
+    { "id": "brand-wechat", "name": "微信", "officialDomains": ["weixin.qq.com", "wx.qq.com"], "category": "社交", "source": "官网公开信息" },
+    { "id": "brand-qq", "name": "腾讯 QQ", "officialDomains": ["qq.com"], "category": "社交", "source": "官网公开信息" },
+    { "id": "brand-icbc", "name": "中国工商银行", "officialDomains": ["icbc.com.cn"], "category": "银行", "source": "官网公开信息" },
+    { "id": "brand-ccb", "name": "中国建设银行", "officialDomains": ["ccb.com"], "category": "银行", "source": "官网公开信息" },
+    { "id": "brand-abc", "name": "中国农业银行", "officialDomains": ["abchina.com"], "category": "银行", "source": "官网公开信息" },
+    { "id": "brand-boc", "name": "中国银行", "officialDomains": ["boc.cn"], "category": "银行", "source": "官网公开信息" },
+    { "id": "brand-cmb", "name": "招商银行", "officialDomains": ["cmbchina.com"], "category": "银行", "source": "官网公开信息" },
+    { "id": "brand-psbc", "name": "中国邮政储蓄银行", "officialDomains": ["psbc.com"], "category": "银行", "source": "官网公开信息" },
+    { "id": "brand-12306", "name": "铁路 12306", "officialDomains": ["12306.cn"], "category": "交通出行", "source": "官网公开信息" },
+    { "id": "brand-chsi", "name": "学信网", "officialDomains": ["chsi.com.cn"], "category": "教育", "source": "官网公开信息" },
+    { "id": "brand-moe", "name": "中华人民共和国教育部", "officialDomains": ["moe.gov.cn"], "category": "政府", "source": "官网公开信息" },
+    { "id": "brand-miit", "name": "工业和信息化部", "officialDomains": ["miit.gov.cn"], "category": "政府", "source": "官网公开信息" },
+    { "id": "brand-gov-cn", "name": "国家机关（.gov.cn 后缀）", "officialDomains": [], "domainSuffixes": ["gov.cn"], "category": "政府", "source": "政务域名管理公开规则" },
+    { "id": "brand-edu-cn", "name": "教育机构（.edu.cn 后缀）", "officialDomains": [], "domainSuffixes": ["edu.cn"], "category": "教育", "source": "教育域名管理公开规则" }
+  ]
+}
