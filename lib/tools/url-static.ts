@@ -26,7 +26,7 @@ export interface UrlStaticReport {
   findings: StaticFinding[];
   /** 纯规则加权分 0-100，仅代表静态层信号强度 */
   score: number;
-  /** 是否建议进入闸门②（沙箱代访） */
+  /** 静态层快速路径标志。注意：按框架 v2「默认深扫原则」，主路径始终进入闸门②，此字段仅保留给性能优化场景使用 */
   needsDeepScan: boolean;
 }
 
