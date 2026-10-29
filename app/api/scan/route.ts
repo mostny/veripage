@@ -1,6 +1,7 @@
 /** POST /api/scan — input validation and bounded scan SSE lifecycle. */
 
 import { randomUUID } from "node:crypto";
+import { artifactCookieName, artifactStore, type ScanArtifactSession } from "../../../lib/artifacts/store.ts";
 import { runScan } from "../../../lib/agent/orchestrator.ts";
 import { createScanSseResponse } from "../../../lib/scans/sse.ts";
 
@@ -40,10 +41,34 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const taskId = randomUUID();
+  let session: ScanArtifactSession;
+  try {
+    session = await artifactStore.createSession(taskId);
+  } catch {
+    return Response.json({ error: "无法创建本次检测的临时证据会话" }, { status: 503 });
+  }
+
+  const cookieName = artifactCookieName(taskId);
+  const maxAge = Math.max(0, Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000));
+  const secure = process.env.NODE_ENV === "production" || new URL(request.url).protocol === "https:";
+  const headers = new Headers();
+  headers.set(
+    "Set-Cookie",
+    `${cookieName}=${session.token}; Path=/api/scans/${taskId}/artifacts; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure ? "; Secure" : ""}`,
+  );
+
   return createScanSseResponse(
     request,
     targetUrl,
-    (scanUrl, onEvent, signal) => runScan(scanUrl, onEvent, { signal }),
-    { taskId, timeoutMs: TOTAL_TIMEOUT_MS },
+    (scanUrl, onEvent, signal) => runScan(scanUrl, onEvent, {
+      signal,
+      artifactSession: { taskId, token: session.token },
+    }),
+    {
+      taskId,
+      timeoutMs: TOTAL_TIMEOUT_MS,
+      headers,
+      onSettled: () => artifactStore.releaseSessionIfEmpty(taskId),
+    },
   );
 }

@@ -18,6 +18,7 @@
 
 import { chromium } from "playwright";
 import type { BrowserContext, Page, Request, Response, Route } from "playwright";
+import { MAX_SCREENSHOT_PIXELS } from "../artifacts/constants.ts";
 import { assertPublicHttpUrl, assertPublicHost } from "../guard/access.ts";
 import { getRegistrableDomain } from "./url-static.ts";
 
@@ -151,6 +152,15 @@ function safeUrl(raw: string): URL | null {
 
 function truncate(text: string, max: number): { text: string; truncated: boolean } {
   return text.length > max ? { text: text.slice(0, max), truncated: true } : { text, truncated: false };
+}
+
+function readPngDimensions(bytes: Buffer): { width: number; height: number } | null {
+  if (bytes.byteLength < 24 || bytes.toString("ascii", 12, 16) !== "IHDR") return null;
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (!signature.every((value, index) => bytes[index] === value)) return null;
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  return width > 0 && height > 0 ? { width, height } : null;
 }
 
 /** 忽略末尾斜杠后比较，避免 "https://x.com" 与 "https://x.com/" 被判为两次跳转 */
@@ -438,22 +448,38 @@ export async function fetchPage(rawUrl: string, options: FetchPageOptions = {}):
 
       // 3) 整页截图
       try {
-        const shot = await withDeadline(
-          page.screenshot({ fullPage: true, type: "png" }),
+        const pageSize = await withDeadline(
+          page.evaluate(() => ({
+            width: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth ?? 0),
+            height: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0),
+          })),
           remaining(),
         );
-        evidence.push({
-          id: nextId("screenshot"),
-          capturedAt: new Date().toISOString(),
-          type: "screenshot",
-          source: "playwright:page.screenshot(fullPage)",
-          mimeType: "image/png",
-          encoding: "base64",
-          data: shot.toString("base64"),
-          width: VIEWPORT.width,
-          height: VIEWPORT.height,
-          fullPage: true,
-        });
+        if (pageSize.width * pageSize.height > MAX_SCREENSHOT_PIXELS) {
+          warnings.push(`整页截图超过像素预算（${pageSize.width}×${pageSize.height}），为控制产物大小已跳过`);
+        } else {
+          const shot = await withDeadline(
+            page.screenshot({ fullPage: true, type: "png" }),
+            remaining(),
+          );
+          const dimensions = readPngDimensions(shot);
+          if (!dimensions || dimensions.width * dimensions.height > MAX_SCREENSHOT_PIXELS) {
+            warnings.push("整页截图尺寸无效或超过像素预算，已跳过保存");
+          } else {
+            evidence.push({
+              id: nextId("screenshot"),
+              capturedAt: new Date().toISOString(),
+              type: "screenshot",
+              source: "playwright:page.screenshot(fullPage)",
+              mimeType: "image/png",
+              encoding: "base64",
+              data: shot.toString("base64"),
+              width: dimensions.width,
+              height: dimensions.height,
+              fullPage: true,
+            });
+          }
+        }
       } catch (err) {
         options.signal?.throwIfAborted();
         warnings.push(`截图采集失败：${errMsg(err)}`);
