@@ -15,6 +15,7 @@
 
 ```bash
 pnpm install
+pnpm exec playwright install chromium   # 闸门②沙箱浏览器（国内可加 PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/）
 cp .env.example .env   # 填入你的 Agnes API Key
 pnpm dev
 ```
