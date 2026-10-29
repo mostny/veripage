@@ -58,6 +58,11 @@ export interface EvidenceItem {
   locator?: string
   /** 内容摘录（截断） */
   excerpt?: string
+  /**
+   * 大件产物（截图字节等）的外部引用 id，由 ArtifactStore 生成。
+   * 快照只存 id 不存字节；取回走 GET /api/scans/:id/artifacts/:artifactId（M2）。
+   */
+  artifactId?: string
 }
 
 /** 检测覆盖条目：每步骤状态 + 跳过/失败原因 */
