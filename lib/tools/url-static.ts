@@ -3,7 +3,13 @@
  *
  * 输出全部为「观察事实」级证据（level: "fact"），供后续闸门与汇总层引用。
  * 规则命中不代表最终风险结论——最终结论由 Agent 汇总三路证据后给出。
+ *
+ * 主域解析用维护中的公共后缀列表（psl）实现：少数后缀枚举会把
+ * login.example.co.uk 误判成 co.uk、把 www.taobao.com.com.cn 误判成
+ * taobao.com.com.cn，PSL 按 eTLD+1 规则给出唯一正确答案。
  */
+
+import { get as getPublicSuffixDomain } from "psl";
 
 export interface StaticFinding {
   /** 证据唯一 id，结论层通过它引用 */
@@ -51,10 +57,8 @@ const SHORTENERS = new Set([
 
 const CHEAP_TLDS = new Set(["top", "xyz", "club", "vip", "icu", "click", "link", "work", "rest"]);
 
-/** 常见二级后缀：registrableDomain 需要取三段 */
-const SECOND_LEVEL_SUFFIXES = new Set([
-  "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "ac.cn",
-]);
+/** IPv4 字面量（点分十进制）：不参与后缀解析，原样当作「主域」 */
+const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
 
 export function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
@@ -76,16 +80,24 @@ export function levenshtein(a: string, b: string): number {
   return prev[n];
 }
 
-/** 近似取「可注册主域」：普通后缀取最后两段，com.cn 类取最后三段；IP 字面量直接返回 */
+/**
+ * 取「可注册主域」（eTLD+1，域名归属的判定基准）：
+ * - IP 字面量（IPv4 点分 / IPv6 带方括号）原样返回，不当域名解析；
+ * - 单标签主机名（localhost、内网短名）PSL 无从解析，原样返回；
+ * - 其余交给 PSL：正确识别 example.co.uk、com.cn、多级子域与未登记 TLD；
+ * - PSL 解析不了（空串 / 非法字符等）时退回 host 本身，绝不返回空串——
+ *   上层要用它做「域名归属」判定，空值会被误读成「无主域」。
+ */
 export function getRegistrableDomain(host: string): string {
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return host;
-  const parts = host.split(".");
-  if (parts.length <= 2) return host;
-  const lastTwo = parts.slice(-2).join(".");
-  if (SECOND_LEVEL_SUFFIXES.has(lastTwo) && parts.length >= 3) {
-    return parts.slice(-3).join(".");
+  const h = host.trim().toLowerCase();
+  if (!h) return host;
+  if (IPV4_LITERAL.test(h)) return h;
+  // IPv6 字面量：URL.hostname 带方括号（[::1]），剥掉后原样返回
+  if (h.startsWith("[") && h.endsWith("]")) {
+    const inner = h.slice(1, -1);
+    if (inner.includes(":")) return inner;
   }
-  return lastTwo;
+  return getPublicSuffixDomain(h) ?? h;
 }
 
 function normalizeInput(input: string): URL {
