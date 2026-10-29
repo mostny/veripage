@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { artifactCookieName, artifactStore, FileArtifactStore } from "../lib/artifacts/store.ts";
 import { runScan } from "../lib/agent/orchestrator.ts";
+import { handleScanPost } from "../lib/scans/handler.ts";
 import { analyzeUrlStatic } from "../lib/tools/url-static.ts";
 import type { FetchPageResult } from "../lib/tools/fetch-page.ts";
 import type { ChatResult } from "../lib/models.ts";
@@ -25,6 +26,109 @@ function check(name: string, condition: boolean): void {
 }
 
 const metadata = { mediaType: "image/png" as const, width: 1, height: 1 };
+
+// Same-process scan handler -> actual ArtifactStore -> actual artifact GET integration.
+{
+  const response = await handleScanPost(
+    new Request("http://veripage.local/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://integration.example/" }),
+    }),
+    {
+      artifactStore,
+      timeoutMs: 1_000,
+      runScan: async (_url, emit, context) => {
+        const saved = await artifactStore.save(context.taskId, context.sessionToken, onePixelPng, metadata, context.signal);
+        emit({ type: "step", step: "gate2-fetch", state: "completed" });
+        return {
+          id: "integration-case",
+          createdAt: new Date().toISOString(),
+          inputSummary: { displayUrl: "https://integration.example/", registrableDomain: "integration.example" },
+          versions: { reportSchema: "1.0", model: "fixture", prompt: "fixture", policy: "1", knowledge: "none" },
+          originalAssessment: {
+            risk: "unknown",
+            evidenceSufficiency: "insufficient",
+            gaps: ["integration fixture"],
+            summary: "integration fixture",
+            findings: [],
+            unknowns: ["integration fixture"],
+            recommendedAction: "人工复核",
+          },
+          coverage: [{ step: "gate2-fetch", state: "completed" }],
+          evidence: [{ id: "ev-screenshot", type: "screenshot", capturedAt: new Date().toISOString(), source: "fixture", artifactId: saved.id }],
+          artifactIds: [saved.id],
+        };
+      },
+    },
+  );
+  const cookieHeader = response.headers.get("set-cookie")?.split(";")[0] ?? "";
+  const fullSetCookie = response.headers.get("set-cookie") ?? "";
+  const body = await response.text();
+  const events = body.split(/\r?\n\r?\n/).filter(Boolean).map((block) => {
+    const line = block.split(/\r?\n/).find((part) => part.startsWith("data: "));
+    return line ? JSON.parse(line.slice(6)) as Record<string, unknown> : {};
+  });
+  const started = events.find((event) => event.type === "started") as { taskId?: string } | undefined;
+  const report = events.find((event) => event.type === "report") as { snapshot?: { artifactIds?: string[] } } | undefined;
+  const taskId = started?.taskId ?? "";
+  const artifactId = report?.snapshot?.artifactIds?.[0] ?? "";
+  check("scan handler report binds its saved artifact", response.status === 200 && Boolean(taskId && artifactId));
+  check("cookie Secure attribute follows the app origin, not the scanned target URL", /; Secure/i.test(fullSetCookie) === (process.env.NODE_ENV === "production"));
+  check("session token stays out of SSE body", Boolean(cookieHeader) && !body.includes(cookieHeader.split("=").slice(1).join("=")));
+  const retrieval = await getArtifact(
+    new Request(`http://veripage.local/api/scans/${taskId}/artifacts/${artifactId}`, { headers: { cookie: cookieHeader } }),
+    { params: Promise.resolve({ id: taskId, artifactId }) },
+  );
+  check("SSE session cookie retrieves the exact stored artifact end-to-end", retrieval.status === 200 && Buffer.compare(Buffer.from(await retrieval.arrayBuffer()), onePixelPng) === 0);
+}
+
+// Failures after a screenshot save must revoke the task and reclaim its quota.
+async function abandonedScan(kind: "runner-failure" | "timeout" | "client-cancel"): Promise<void> {
+  const requestController = new AbortController();
+  let savedArtifactId = "";
+  let resolveSaved!: () => void;
+  const savedPromise = new Promise<void>((resolve) => { resolveSaved = resolve; });
+  const response = await handleScanPost(
+    new Request("http://veripage.local/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://abandoned.example/" }),
+      signal: requestController.signal,
+    }),
+    {
+      artifactStore,
+      timeoutMs: kind === "timeout" ? 150 : 2_000,
+      runScan: async (_url, _emit, context) => {
+        const saved = await artifactStore.save(context.taskId, context.sessionToken, onePixelPng, metadata, context.signal);
+        savedArtifactId = saved.id;
+        resolveSaved();
+        if (kind === "runner-failure") throw new Error("fixture failed after artifact save");
+        return await new Promise((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });
+        });
+      },
+    },
+  );
+  await savedPromise;
+  if (kind === "client-cancel") requestController.abort(new DOMException("fixture disconnect", "AbortError"));
+  const body = await response.text();
+  const cookie = response.headers.get("set-cookie")?.split(";")[0] ?? "";
+  const startedLine = body.split(/\r?\n/).find((line) => line.startsWith("data: ") && line.includes('"type":"started"'));
+  const taskId = startedLine ? (JSON.parse(startedLine.slice(6)) as { taskId: string }).taskId : "";
+  const retrieval = await getArtifact(
+    new Request(`http://veripage.local/api/scans/${taskId}/artifacts/${savedArtifactId}`, { headers: { cookie } }),
+    { params: Promise.resolve({ id: taskId, artifactId: savedArtifactId }) },
+  );
+  check(`${kind} removes the saved artifact and revokes its session`, Boolean(taskId && savedArtifactId) && retrieval.status === 404);
+  if (kind !== "client-cancel") {
+    check(`${kind} emits an explicit failed terminal`, body.includes('"step":"validate","state":"failed"'));
+  }
+}
+
+await abandonedScan("runner-failure");
+await abandonedScan("timeout");
+await abandonedScan("client-cancel");
 
 // Scan response creates a scoped HttpOnly cookie without serializing the secret into SSE.
 {
@@ -181,8 +285,14 @@ const metadata = { mediaType: "image/png" as const, width: 1, height: 1 };
       stat(root),
       stat(path.join(root, `${saved.id}.png`)),
     ]);
-    check("artifact directory permissions are 0700", (directoryInfo.mode & 0o777) === 0o700);
-    check("artifact file permissions are 0600", (fileInfo.mode & 0o777) === 0o600);
+    if (process.platform === "win32") {
+      // Windows ACLs do not expose POSIX permission bits through stat().mode.
+      // The store is placed under the current user's OS temp directory.
+      console.log("SKIP POSIX mode-bit assertions on Windows; temp ACLs are platform-managed.");
+    } else {
+      check("artifact directory permissions are 0700", (directoryInfo.mode & 0o777) === 0o700);
+      check("artifact file permissions are 0600", (fileInfo.mode & 0o777) === 0o600);
+    }
 
     const secondTask = randomUUID();
     const secondSession = await store.createSession(secondTask);

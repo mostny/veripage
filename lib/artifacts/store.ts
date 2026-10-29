@@ -52,6 +52,7 @@ export interface ArtifactStore {
   ): Promise<StoredArtifact>;
   get(taskId: string, token: string, artifactId: string): Promise<RetrievedArtifact | null>;
   releaseSessionIfEmpty(taskId: string): Promise<void>;
+  removeTask(taskId: string): Promise<void>;
   cleanup(): Promise<number>;
 }
 
@@ -250,6 +251,15 @@ export class FileArtifactStore implements ArtifactStore {
   async releaseSessionIfEmpty(taskId: string): Promise<void> {
     const hasArtifacts = [...this.artifacts.values()].some((artifact) => artifact.taskId === taskId);
     if (!hasArtifacts) this.sessions.delete(taskId);
+  }
+
+  async removeTask(taskId: string): Promise<void> {
+    this.sessions.delete(taskId);
+    for (const [id, artifact] of this.artifacts) {
+      if (artifact.taskId !== taskId) continue;
+      this.dropArtifact(id, artifact);
+      await rm(artifact.filePath, { force: true }).catch(() => undefined);
+    }
   }
 
   async cleanup(): Promise<number> {

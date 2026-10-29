@@ -18,6 +18,12 @@ check("无错误", !r1.error);
 check("跳转链长度 ≥1", r1.redirectChain.length >= 1);
 const shot = r1.evidence.find((e) => e.type === "screenshot");
 check("截图 base64 >1000 字符", !!shot && "data" in shot && shot.data.length > 1000);
+if (shot && "data" in shot) {
+  const png = Buffer.from(shot.data, "base64");
+  const actualWidth = png.length >= 24 ? png.readUInt32BE(16) : 0;
+  const actualHeight = png.length >= 24 ? png.readUInt32BE(20) : 0;
+  check("截图尺寸记录与 PNG IHDR 一致", shot.width === actualWidth && shot.height === actualHeight && shot.fullPage === true);
+}
 const text = r1.evidence.find((e) => e.type === "text");
 check("title 含 Example", !!text && "title" in text && /example/i.test(text.title));
 
