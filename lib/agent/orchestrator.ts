@@ -22,8 +22,8 @@
 import { randomUUID } from "node:crypto";
 
 import { assertPublicHttpUrl } from "../guard/access.ts";
-import { analyzeUrlStatic, getRegistrableDomain, type StaticFinding } from "../tools/url-static.ts";
-import { fetchPage, type PageEvidence } from "../tools/fetch-page.ts";
+import { analyzeUrlStatic, getRegistrableDomain, type StaticFinding, type UrlStaticReport } from "../tools/url-static.ts";
+import { fetchPage, type FetchPageResult, type PageEvidence } from "../tools/fetch-page.ts";
 import { chat, visionChat, type ChatMessage } from "../models.ts";
 import {
   PROMPT_VERSION,
@@ -76,8 +76,34 @@ const EXCERPT_LIMIT = 1200;
 /** 主分析器第一次输出不可解析时的纠偏提示（追加在 messages 末尾的 user 消息） */
 const RETRY_HINT = "上一次输出无法解析为合法 JSON，请严格只输出 JSON 对象";
 
+/** 不包含模型先前的自由文本；提示只要求重新核对可信证据清单并删除无依据结论。 */
+const FINDING_REPAIR_HINT =
+  "上一次输出中有观察事实、外部引用或推断无法绑定到证据清单里的真实证据。请只依据原证据清单重写 JSON：观察事实/引用必须直接引用有效证据 ID；推断必须直接或通过有依据的 finding 引用有效证据；无法支持的结论请删除，并把缺口写入 gaps/unknowns。不得新增事实或证据 ID。";
+
 /** 过程事件回调：同时负责把事件聚合进 coverage */
 type EmitStep = (step: string, state: StepState, detail?: string, reason?: string) => void;
+
+/** Internal seams keep failure and evidence-boundary tests deterministic and offline. */
+export interface ScanServices {
+  guard: typeof assertPublicHttpUrl;
+  analyzeUrl: typeof analyzeUrlStatic;
+  fetchPage: (url: string, options?: { signal?: AbortSignal }) => Promise<FetchPageResult>;
+  visionChat: typeof visionChat;
+  chat: typeof chat;
+}
+
+export interface RunScanOptions {
+  signal?: AbortSignal;
+  services?: Partial<ScanServices>;
+}
+
+const defaultScanServices: ScanServices = {
+  guard: assertPublicHttpUrl,
+  analyzeUrl: analyzeUrlStatic,
+  fetchPage,
+  visionChat,
+  chat,
+};
 
 // ---------------------------------------------------------------------------
 // 证据上下文：evidence 数组与 analyzer 消息的唯一事实来源
@@ -92,11 +118,14 @@ interface ScanContext {
   staticScore: number;
   /** 闸门②跳转链（起点 → 终点） */
   redirectChain: string[];
+  redirectChainCaptured: boolean;
   pageTitle?: string;
   pageText?: string;
   /** 表单硬事实，id 由编排器生成（ev-form-N），与证据 id 同源 */
   forms: Array<{ id: string; action: string; method: string; hasPasswordInput: boolean; inputCount: number }>;
+  formsCaptured: boolean;
   externalScriptDomains: string[];
+  externalScriptsCaptured: boolean;
   /** 闸门③视觉模型答复（作为 ev-vision 证据） */
   visionAnswer?: string;
   /** 取证告警（超时 / 部分失败），并入 gaps */
@@ -198,16 +227,18 @@ function buildEvidence(ctx: ScanContext): {
     });
   }
 
-  // 闸门②：跳转链
+  // 闸门②：只有导航观察完成，跳转链才可作为证据。
   const finalUrl = ctx.redirectChain[ctx.redirectChain.length - 1] ?? ctx.displayUrl;
-  evidence.push({
-    id: "ev-redirect",
-    type: "redirect",
-    capturedAt: now,
-    source: "playwright:redirectChain",
-    locator: finalUrl,
-    excerpt: ctx.redirectChain.length > 0 ? ctx.redirectChain.join(" → ") : "(无跳转链)",
-  });
+  if (ctx.redirectChainCaptured) {
+    evidence.push({
+      id: "ev-redirect",
+      type: "redirect",
+      capturedAt: now,
+      source: "playwright:redirectChain",
+      locator: finalUrl,
+      excerpt: ctx.redirectChain.join(" → "),
+    });
+  }
 
   if (ctx.pageTitle !== undefined) {
     evidence.push({
@@ -243,7 +274,7 @@ function buildEvidence(ctx: ScanContext): {
           `密码框=${f.hasPasswordInput ? "有" : "无"} 输入项=${f.inputCount}`,
       });
     }
-  } else {
+  } else if (ctx.formsCaptured) {
     evidence.push({
       id: "ev-form-none",
       type: "form",
@@ -254,14 +285,17 @@ function buildEvidence(ctx: ScanContext): {
     });
   }
 
-  if (ctx.externalScriptDomains.length > 0) {
+  if (ctx.externalScriptsCaptured) {
     evidence.push({
       id: "ev-scripts",
       type: "request",
       capturedAt: domAt,
       source: "playwright:script[src] 与最终页主域比对",
       locator: ctx.registrableDomain,
-      excerpt: `第三方域脚本：${ctx.externalScriptDomains.join(", ")}`,
+      excerpt:
+        ctx.externalScriptDomains.length > 0
+          ? `第三方域脚本：${ctx.externalScriptDomains.join(", ")}`
+          : "DOM 脚本列表已采集，未发现第三方域脚本",
     });
   }
 
@@ -274,15 +308,6 @@ function buildEvidence(ctx: ScanContext): {
       source: "vision:视觉核验模型对截图的答复",
       locator: "整页截图",
       excerpt: clip(ctx.visionAnswer),
-    });
-  } else {
-    evidence.push({
-      id: "ev-vision-none",
-      type: "text",
-      capturedAt: now,
-      source: "vision:skipped",
-      locator: "整页截图（缺失）",
-      excerpt: "无截图视觉证据（取证未覆盖或页面无截图）",
     });
   }
   if (ctx.screenshot) {
@@ -313,10 +338,13 @@ function buildEvidence(ctx: ScanContext): {
     staticFindings: ctx.staticFindings,
     staticScore: ctx.staticScore,
     redirectChain: ctx.redirectChain,
+    redirectChainCaptured: ctx.redirectChainCaptured,
     pageTitle: ctx.pageTitle,
     pageText: ctx.pageText,
     forms: ctx.forms,
+    formsCaptured: ctx.formsCaptured,
     externalScriptDomains: ctx.externalScriptDomains,
+    externalScriptsCaptured: ctx.externalScriptsCaptured,
     visionAnswer: ctx.visionAnswer,
     warnings: ctx.warnings,
   };
@@ -334,8 +362,19 @@ function stripJsonFences(raw: string): string {
   return fence ? fence[1].trim() : text;
 }
 
-/** 模型输出 → Assessment；risk 枚举非法或结构不符时返回 null（调用方负责重试） */
-function parseAssessment(raw: string, evidenceIds: Set<string>): Assessment | null {
+interface AssessmentParseResult {
+  assessment: Assessment;
+  unsupportedFindingCount: number;
+  unsupportedRisk: boolean;
+}
+
+interface NormalizedFindings {
+  findings: Finding[];
+  unsupportedIds: string[];
+}
+
+/** 模型输出 → Assessment；结构损坏或 risk 枚举非法时返回 null（调用方负责有限重试） */
+function parseAssessment(raw: string, evidenceIds: Set<string>): AssessmentParseResult | null {
   const text = stripJsonFences(raw);
   let json: unknown;
   try {
@@ -354,7 +393,7 @@ function parseAssessment(raw: string, evidenceIds: Set<string>): Assessment | nu
   return normalizeAssessment(json, evidenceIds);
 }
 
-function normalizeAssessment(raw: unknown, evidenceIds: Set<string>): Assessment | null {
+function normalizeAssessment(raw: unknown, evidenceIds: Set<string>): AssessmentParseResult | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
 
@@ -367,7 +406,13 @@ function normalizeAssessment(raw: unknown, evidenceIds: Set<string>): Assessment
       ? (obj.evidenceSufficiency as Assessment["evidenceSufficiency"])
       : "partial";
 
+  if (!Array.isArray(obj.findings)) return null;
+  const normalizedFindings = normalizeFindings(obj.findings, evidenceIds);
+  const unsupportedRisk = risk !== "unknown" && normalizedFindings.findings.length === 0;
   return {
+    unsupportedFindingCount: normalizedFindings.unsupportedIds.length,
+    unsupportedRisk,
+    assessment: {
     risk: risk as RiskLevel,
     evidenceSufficiency: sufficiency,
     gaps: toStringArray(obj.gaps),
@@ -375,12 +420,13 @@ function normalizeAssessment(raw: unknown, evidenceIds: Set<string>): Assessment
       typeof obj.summary === "string" && obj.summary.trim().length > 0
         ? obj.summary.trim()
         : "（模型未给出摘要）",
-    findings: normalizeFindings(obj.findings, evidenceIds),
+    findings: normalizedFindings.findings,
     unknowns: toStringArray(obj.unknowns),
     recommendedAction:
       typeof obj.recommendedAction === "string" && obj.recommendedAction.trim().length > 0
         ? obj.recommendedAction.trim()
         : "证据不足，建议人工复核。",
+    },
   };
 }
 
@@ -389,11 +435,11 @@ function normalizeAssessment(raw: unknown, evidenceIds: Set<string>): Assessment
  * 这里做防御性清洗，保证快照内部自洽（validateSnapshot 可通过）：
  * - 空 statement 的 finding 直接丢弃；
  * - id 缺失/重复时重新编号；
- * - evidenceIds 只保留证据池（或 finding 池）里真实存在的 id；
- * - observed_fact / reference 清洗后一条证据都不剩 → 降级为 inference，
-   避免「无依据的观察事实」进入报告。
+ * - observed_fact / reference 必须直接引用真实证据，否则剔除；不得改标为 inference；
+ * - inference 必须直接或经有依据的 finding 推理链到达真实证据；
+ * - 无效 finding 的数量交给调用方触发一次有界修复；仍无效则丢弃并降级报告语气。
  */
-function normalizeFindings(raw: unknown, evidenceIds: Set<string>): Finding[] {
+function normalizeFindings(raw: unknown, evidenceIds: Set<string>): NormalizedFindings {
   const list = Array.isArray(raw) ? raw : [];
   const draft: Finding[] = [];
   const usedIds = new Set<string>();
@@ -419,18 +465,71 @@ function normalizeFindings(raw: unknown, evidenceIds: Set<string>): Finding[] {
     });
   });
 
-  return draft.map((f) => {
-    if (f.kind === "inference") {
-      // inference 可引用其他 finding 形成推理链，但不得自引用、不得引用不存在的 id
-      return {
-        ...f,
-        evidenceIds: f.evidenceIds.filter((r) => r !== f.id && (evidenceIds.has(r) || usedIds.has(r))),
-      };
+  const evidenceBacked = new Set<string>();
+  const normalized = new Map<string, Finding>();
+  const unsupportedIds: string[] = [];
+
+  for (const finding of draft) {
+    if (finding.kind === "inference") continue;
+    const refs = finding.evidenceIds.filter((ref) => evidenceIds.has(ref));
+    if (refs.length === 0) {
+      unsupportedIds.push(finding.id);
+      continue;
     }
-    const refs = f.evidenceIds.filter((r) => evidenceIds.has(r));
-    if (refs.length === 0) return { ...f, kind: "inference" as const, evidenceIds: [] };
-    return { ...f, evidenceIds: refs };
-  });
+    evidenceBacked.add(finding.id);
+    normalized.set(finding.id, { ...finding, evidenceIds: refs });
+  }
+
+  // Resolve inference chains to a fixed point. Cycles with no evidence root never become supported.
+  const inferenceCandidates = draft.filter((finding) => finding.kind === "inference");
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const finding of inferenceCandidates) {
+      if (evidenceBacked.has(finding.id)) continue;
+      const refs = finding.evidenceIds.filter(
+        (ref) => evidenceIds.has(ref) || evidenceBacked.has(ref),
+      );
+      if (refs.length === 0) continue;
+      evidenceBacked.add(finding.id);
+      normalized.set(finding.id, { ...finding, evidenceIds: refs });
+      changed = true;
+    }
+  }
+
+  for (const finding of inferenceCandidates) {
+    if (!evidenceBacked.has(finding.id)) unsupportedIds.push(finding.id);
+  }
+
+  return {
+    findings: draft
+      .map((finding) => normalized.get(finding.id))
+      .filter((finding): finding is Finding => finding !== undefined),
+    unsupportedIds,
+  };
+}
+
+/** 一个预算内的修复轮后仍有无依据 finding 时，移除并收紧风险措辞。 */
+function finalizeUnsupportedFindings(
+  assessment: Assessment,
+  unsupportedFindingCount: number,
+  unsupportedRisk: boolean,
+): Assessment {
+  if (unsupportedFindingCount === 0 && !unsupportedRisk) return assessment;
+  const gap = unsupportedFindingCount > 0
+    ? `${unsupportedFindingCount} 条结论未能绑定可验证证据，已移除；当前风险判断不再可靠。`
+    : "模型给出了风险等级，但没有提供任何可验证结论，无法支持该风险判断。";
+  return {
+    ...assessment,
+    risk: "unknown",
+    evidenceSufficiency: "insufficient",
+    gaps: [...new Set([...assessment.gaps, gap])],
+    summary: unsupportedFindingCount > 0
+      ? `因 ${unsupportedFindingCount} 条结论缺少有效依据已将其移除，风险暂无法判断。`
+      : "没有可验证的分析结论支持风险定级，当前风险暂无法判断。",
+    unknowns: [...new Set([...assessment.unknowns, "模型提出的部分结论未获证据支持，已移除；页面风险需依据保留证据重新核验。"])],
+    recommendedAction: "证据不足，建议人工复核或稍后重试；不要仅凭已移除的无依据结论采取行动。",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -515,12 +614,7 @@ function finalizeSnapshot(snapshot: CaseSnapshot, emitStep: EmitStep): CaseSnaps
       summary: `[校验未过] ${snapshot.originalAssessment.summary}`,
     };
   }
-  // validate 条目在快照组装之后才产生，直接推进同一 coverage 数组（快照持有其引用）
-  snapshot.coverage.push({
-    step: STEP_VALIDATE,
-    state,
-    ...(result.ok ? {} : { reason: detail || "校验未通过" }),
-  });
+  // validate 条目在快照组装后通过唯一 emitStep 写入，避免 coverage 双写。
   emitStep(
     STEP_VALIDATE,
     state,
@@ -540,11 +634,25 @@ function finalizeSnapshot(snapshot: CaseSnapshot, emitStep: EmitStep): CaseSnaps
  * @param onEvent 过程事件回调（step 事件；report 事件由路由层发送）
  * @returns        快照。即使部分步骤失败 / 校验未过也一定返回可展示的快照。
  */
-export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void): Promise<CaseSnapshot> {
+export async function runScan(
+  rawUrl: string,
+  onEvent: (ev: ScanEvent) => void,
+  options: RunScanOptions = {},
+): Promise<CaseSnapshot> {
+  const services: ScanServices = { ...defaultScanServices, ...options.services };
+  const throwIfAborted = (): void => options.signal?.throwIfAborted();
   const coverage: CoverageEntry[] = [];
+  const coverageIndex = new Map<string, number>();
   /** 发一个过程事件，同时把它聚合进快照的「检测覆盖」维度 */
   const emitStep: EmitStep = (step, state, detail, reason) => {
-    coverage.push({ step, state, ...(reason !== undefined ? { reason } : {}) });
+    const entry = { step, state, ...(reason !== undefined ? { reason } : {}) };
+    const previousIndex = coverageIndex.get(step);
+    if (previousIndex === undefined) {
+      coverageIndex.set(step, coverage.length);
+      coverage.push(entry);
+    } else {
+      coverage[previousIndex] = entry;
+    }
     onEvent({
       type: "step",
       step,
@@ -555,7 +663,9 @@ export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void):
   };
 
   // ---- S0 访问边界：先于一切网络访问 --------------------------------------
-  const guard = await assertPublicHttpUrl(rawUrl);
+  throwIfAborted();
+  const guard = await services.guard(rawUrl);
+  throwIfAborted();
   if (!guard.allowed) {
     const reason = guard.reason ?? "S0 访问边界拒绝";
     emitStep(STEP_S0, "completed", undefined, reason);
@@ -613,7 +723,7 @@ export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void):
   );
 
   // ---- 闸门①：URL 静态分析（纯确定性规则，不访问网络） --------------------
-  const staticReport = analyzeUrlStatic(rawUrl);
+  const staticReport: UrlStaticReport = services.analyzeUrl(rawUrl);
   emitStep(
     STEP_STATIC,
     "completed",
@@ -621,28 +731,22 @@ export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void):
   );
 
   // ---- 闸门②：沙箱代访 ----------------------------------------------------
-  const page = await fetchPage(rawUrl);
+  const page = await services.fetchPage(rawUrl, { signal: options.signal });
+  throwIfAborted();
   const warnings: string[] = [];
   let pageEvidence: PageEvidence[] = [];
   let redirectChain: string[] = [staticReport.normalizedUrl];
+  let redirectChainCaptured = false;
 
   if (page.blocked) {
     // 理论上 S0 已放行不会走到这里；仍然只降级不抛异常，靠 gaps 把真相写清楚
     warnings.push(`闸门②被访问边界拒绝：${page.reason ?? "原因未说明"}`);
     emitStep(STEP_FETCH, "partial", undefined, page.reason ?? "访问边界拒绝");
   } else {
-    if (page.error) {
-      warnings.push(`闸门②沙箱代访未完成：${page.error}`);
-      emitStep(STEP_FETCH, "partial", undefined, page.error);
-    } else {
-      emitStep(
-        STEP_FETCH,
-        "completed",
-        `跳转链 ${page.redirectChain.length} 跳，证据 ${page.evidence.length} 项`,
-      );
-    }
+    if (page.error) warnings.push(`闸门②沙箱代访未完成：${page.error}`);
     warnings.push(...page.warnings);
     pageEvidence = page.evidence.length > 0 ? page.evidence : (page.partialEvidence ?? []);
+    redirectChainCaptured = !page.error && page.redirectChain.length > 0;
     if (page.redirectChain.length > 0) redirectChain = page.redirectChain;
   }
 
@@ -651,6 +755,21 @@ export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void):
   const formsEvidence = pageEvidence.find((e) => e.type === "forms");
   const scriptsEvidence = pageEvidence.find((e) => e.type === "externalScripts");
   const screenshotEvidence = pageEvidence.find((e) => e.type === "screenshot");
+  const formsCaptured = formsEvidence?.type === "forms";
+  const externalScriptsCaptured = scriptsEvidence?.type === "externalScripts";
+
+  if (!page.blocked && !formsCaptured) {
+    warnings.push("DOM/表单未成功采集；不能推断页面没有表单");
+  }
+  if (!page.blocked && !externalScriptsCaptured) {
+    warnings.push("script[src] 列表未成功采集；不能推断页面没有第三方脚本");
+  }
+  if (!page.blocked && !redirectChainCaptured) {
+    warnings.push("导航/跳转链未成功采集；不能推断没有发生跳转");
+  }
+  if (!page.blocked && !screenshotEvidence) {
+    warnings.push("整页截图未采集；视觉核验未覆盖");
+  }
 
   const pageTitle = textEvidence && textEvidence.type === "text" ? textEvidence.title : undefined;
   const pageText = textEvidence && textEvidence.type === "text" ? textEvidence.text : undefined;
@@ -667,6 +786,16 @@ export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void):
   const externalScriptDomains =
     scriptsEvidence && scriptsEvidence.type === "externalScripts" ? scriptsEvidence.domains : [];
 
+  if (!page.blocked) {
+    const incomplete = Boolean(page.error || page.warnings.length > 0 || !textEvidence || !formsCaptured || !screenshotEvidence);
+    emitStep(
+      STEP_FETCH,
+      incomplete ? "partial" : "completed",
+      `跳转链 ${page.redirectChain.length} 跳，证据 ${pageEvidence.length} 项`,
+      incomplete ? page.error ?? warnings.join("；") : undefined,
+    );
+  }
+
   // ---- 闸门③视觉：截图交给视觉模型，失败不阻断 ----------------------------
   let visionAnswer: string | undefined;
   const shot = screenshotEvidence && screenshotEvidence.type === "screenshot" ? screenshotEvidence : undefined;
@@ -674,7 +803,8 @@ export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void):
     emitStep(STEP_VISION, "skipped", undefined, "未采集到整页截图，跳过视觉核验");
   } else {
     try {
-      const res = await visionChat(visionAnalysisPrompt(), shot.data);
+      const res = await services.visionChat(visionAnalysisPrompt(), shot.data, { signal: options.signal });
+      throwIfAborted();
       const answer = res.content.trim();
       if (answer.length > 0) {
         visionAnswer = answer;
@@ -683,6 +813,7 @@ export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void):
         emitStep(STEP_VISION, "partial", undefined, "视觉模型返回空内容");
       }
     } catch (err) {
+      throwIfAborted();
       emitStep(STEP_VISION, "skipped", undefined, `视觉核验失败：${errMsg(err)}`);
     }
   }
@@ -694,10 +825,13 @@ export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void):
     staticFindings: staticReport.findings,
     staticScore: staticReport.score,
     redirectChain,
+    redirectChainCaptured,
     pageTitle,
     pageText,
     forms,
+    formsCaptured,
     externalScriptDomains,
+    externalScriptsCaptured,
     visionAnswer,
     warnings,
     domCapturedAt: textEvidence?.capturedAt,
@@ -721,32 +855,76 @@ export async function runScan(rawUrl: string, onEvent: (ev: ScanEvent) => void):
 
   let assessment: Assessment | null = null;
   let failure: string | undefined;
+  let pendingUnsupported: AssessmentParseResult | undefined;
   for (let attempt = 1; attempt <= 2 && !assessment; attempt += 1) {
+    throwIfAborted();
     let content: string;
     try {
-      const res = await chat(messages, { temperature: 0.2, maxTokens: 2000 });
+      const res = await services.chat(messages, { temperature: 0.2, maxTokens: 2000, signal: options.signal });
+      throwIfAborted();
       content = res.content;
     } catch (err) {
+      throwIfAborted();
       failure = `主分析器调用失败：${errMsg(err)}`;
+      if (pendingUnsupported) {
+        assessment = finalizeUnsupportedFindings(
+          pendingUnsupported.assessment,
+          pendingUnsupported.unsupportedFindingCount,
+          pendingUnsupported.unsupportedRisk,
+        );
+        assessment.gaps.push(`无依据结论修复轮未能完成：${failure}`);
+        assessment.summary = `${assessment.summary} 修复分析未能完成，结果需要人工复核。`;
+      }
       break;
     }
-    assessment = parseAssessment(content, evidenceIds);
-    if (!assessment) {
+    const parsed = parseAssessment(content, evidenceIds);
+    if (!parsed) {
       if (attempt === 1) {
         // 输出不可解析：在 messages 末尾追加一条纠偏 user 消息，重试一次
         messages.push({ role: "user", content: RETRY_HINT });
       } else {
         failure = "主分析器两次输出均无法解析为合法 JSON（JSON 损坏或 risk 枚举非法）";
       }
+      continue;
+    }
+
+    if ((parsed.unsupportedFindingCount > 0 || parsed.unsupportedRisk) && attempt === 1) {
+      // 单次有界修复；无论此前是否遇到解析错误，总主分析调用数不超过两次。
+      pendingUnsupported = parsed;
+      messages.push({ role: "user", content: FINDING_REPAIR_HINT });
+      continue;
+    }
+
+    assessment = finalizeUnsupportedFindings(
+      parsed.assessment,
+      parsed.unsupportedFindingCount,
+      parsed.unsupportedRisk,
+    );
+    if ((parsed.unsupportedFindingCount > 0 || parsed.unsupportedRisk) && attempt > 1 && pendingUnsupported) {
+      pendingUnsupported = undefined;
     }
   }
 
-  if (assessment) {
+  if (!assessment && pendingUnsupported) {
+    assessment = finalizeUnsupportedFindings(
+      pendingUnsupported.assessment,
+      pendingUnsupported.unsupportedFindingCount,
+      pendingUnsupported.unsupportedRisk,
+    );
+    const reason = failure ?? "修复轮仍未返回可解析且有依据的完整输出";
+    assessment.gaps.push(`无依据结论修复轮未能完成：${reason}`);
+    assessment.summary = `${assessment.summary} 修复分析未能完成，结果需要人工复核。`;
+    failure = reason;
+  }
+
+  if (assessment && !failure) {
     emitStep(
       STEP_ANALYZER,
       "completed",
       `风险=${assessment.risk}，findings=${assessment.findings.length} 条，充分度=${assessment.evidenceSufficiency}`,
     );
+  } else if (assessment) {
+    emitStep(STEP_ANALYZER, "failed", undefined, failure);
   } else {
     emitStep(STEP_ANALYZER, "failed", undefined, failure);
     assessment = fallbackAssessment(ctx, failure ?? "主分析器未产出可用结论");

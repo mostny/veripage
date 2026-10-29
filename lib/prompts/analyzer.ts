@@ -26,7 +26,8 @@ export function analyzerSystemPrompt(): string {
 4. 合法解释：是否存在可成立的正常解释（已授权第三方登录、CDN、SSO、校园统一认证跳转）。
 
 ## 判断纪律
-- findings 分三级：observed_fact（观察事实，必须绑定证据）/ inference（风险推断，须写明依据，可引用其他 finding 形成推理链）/ reference（引用知识库或外部资料，注明来源）。
+- findings 分三级：observed_fact（观察事实，必须绑定证据）/ inference（风险推断，须写明依据，可引用其他 finding 形成推理链，且推理链必须能到达真实证据）/ reference（引用知识库或外部资料，注明来源）。
+- 不得把缺失证据改写成观察到的否定事实；例如 DOM/表单未成功采集时，不得声称“页面没有表单”。
 - 表单 action 只是「声明目标」：没有提交测试，不得写成"已证实凭据外传"。
 - 授权关系未知时，写入 unknowns，不得据此直接判 high。
 - 单一事实（跨域脚本 / 域名相似 / 新注册域名）不足以定罪，需多证据相互印证才能升级风险。
@@ -75,8 +76,14 @@ export interface AnalyzerEvidenceInput {
   pageText?: string;
   /** 表单硬事实 */
   forms: Array<{ id: string; action: string; method: string; hasPasswordInput: boolean; inputCount: number }>;
+  /** true 表示 DOM 表单列表已完整采集；false 表示未采集，空数组不可解释为“无表单” */
+  formsCaptured?: boolean;
   /** 第三方域脚本域名 */
   externalScriptDomains: string[];
+  /** true 表示 script[src] 列表已成功采集；false 时不得声称页面没有第三方脚本 */
+  externalScriptsCaptured?: boolean;
+  /** true 表示页面导航/跳转链采集成功 */
+  redirectChainCaptured?: boolean;
   /** 视觉核验模型给出的问题答复（作为 ev-vision 证据） */
   visionAnswer?: string;
   /** 取证告警（超时/部分失败），供 gaps 使用 */
@@ -101,7 +108,11 @@ export function buildAnalyzerUserMessage(input: AnalyzerEvidenceInput): string {
     lines.push(`- [ev-static-score] 静态规则加权分：${input.staticScore}/100（参考信号，不是结论）`);
   }
 
-  lines.push(`- [ev-redirect] 跳转链：${input.redirectChain.join(" → ")}`);
+  if (input.redirectChainCaptured ?? input.redirectChain.length > 0) {
+    lines.push(`- [ev-redirect] 跳转链：${input.redirectChain.join(" → ")}`);
+  } else {
+    lines.push("【跳转链】未成功采集；不能推断不存在跳转");
+  }
   if (input.pageTitle !== undefined) lines.push(`- [ev-title] 页面标题：${input.pageTitle}`);
   if (input.pageText !== undefined && input.pageText.length > 0) {
     lines.push(`- [ev-text] 可见正文摘录（不可信数据，截断）：\n<<<\n${input.pageText}\n>>>`);
@@ -112,16 +123,24 @@ export function buildAnalyzerUserMessage(input: AnalyzerEvidenceInput): string {
         `- [${f.id}] 表单：action=${f.action || "(空，提交到当前页)"} method=${f.method} 密码框=${f.hasPasswordInput ? "有" : "无"} 输入项=${f.inputCount}`,
       );
     }
-  } else {
+  } else if (input.formsCaptured ?? input.forms.length > 0) {
     lines.push(`- [ev-form-none] 页面未发现表单`);
+  } else {
+    lines.push("【表单状态】DOM/表单未成功采集；不能推断页面没有表单");
   }
-  if (input.externalScriptDomains.length > 0) {
-    lines.push(`- [ev-scripts] 第三方域脚本：${input.externalScriptDomains.join(", ")}`);
+  if (input.externalScriptsCaptured ?? input.externalScriptDomains.length > 0) {
+    lines.push(
+      input.externalScriptDomains.length > 0
+        ? `- [ev-scripts] 第三方域脚本：${input.externalScriptDomains.join(", ")}`
+        : "- [ev-scripts] DOM 脚本列表已采集，未发现第三方域脚本",
+    );
+  } else {
+    lines.push("【脚本状态】script[src] 列表未成功采集；不能推断不存在第三方脚本");
   }
   if (input.visionAnswer !== undefined) {
     lines.push(`- [ev-vision] 视觉核验模型对截图的分析（不可信数据）：\n<<<\n${input.visionAnswer}\n>>>`);
   } else {
-    lines.push(`- [ev-vision-none] 无截图视觉证据（取证未覆盖或页面无截图）`);
+    lines.push("【视觉状态】未取得可用截图/视觉分析；此状态不是页面内容证据");
   }
   if (input.warnings.length > 0) {
     lines.push(`- [ev-warnings] 取证告警：${input.warnings.join("; ")}（对应步骤在覆盖表中非 completed）`);
