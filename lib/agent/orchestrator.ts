@@ -80,6 +80,21 @@ const EXCERPT_LIMIT = 1200;
 /** 主分析器第一次输出不可解析时的纠偏提示（追加在 messages 末尾的 user 消息） */
 const RETRY_HINT = "上一次输出无法解析为合法 JSON，请严格只输出 JSON 对象";
 
+/**
+ * 主分析器输出预算（max_tokens）。step-5-preview 这类推理模型先产出
+ * reasoning 再产出 content，2000 预算会被 reasoning 吃光导致 JSON 截断
+ * （W3 实验 6 样本试跑实测 4/6 finish=length，见 eval/experiments 报告 0.5 节）。
+ * 默认 6000（实验全量验证可用），可用 VERIPAGE_ANALYZER_MAX_TOKENS 覆盖；
+ * 非法/非正值回落默认，不因配置错误让判定悄悄截断。
+ */
+const DEFAULT_ANALYZER_MAX_TOKENS = 6000;
+function analyzerMaxTokens(): number {
+  const raw = process.env.VERIPAGE_ANALYZER_MAX_TOKENS;
+  if (!raw) return DEFAULT_ANALYZER_MAX_TOKENS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_ANALYZER_MAX_TOKENS;
+}
+
 /** 不包含模型先前的自由文本；提示只要求重新核对可信证据清单并删除无依据结论。 */
 const FINDING_REPAIR_HINT =
   "上一次输出中有观察事实、外部引用或推断无法绑定到证据清单里的真实证据。请只依据原证据清单重写 JSON：观察事实/引用必须直接引用有效证据 ID；推断必须直接或通过有依据的 finding 引用有效证据；无法支持的结论请删除，并把缺口写入 gaps/unknowns。不得新增事实或证据 ID。";
@@ -1132,7 +1147,7 @@ export async function runScan(
     throwIfAborted();
     let content: string;
     try {
-      const res = await services.chat(messages, { temperature: 0.2, maxTokens: 2000, signal: options.signal });
+      const res = await services.chat(messages, { temperature: 0.2, maxTokens: analyzerMaxTokens(), signal: options.signal });
       throwIfAborted();
       content = res.content;
     } catch (err) {
