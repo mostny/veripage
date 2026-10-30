@@ -16,9 +16,12 @@ import {
 } from "../lib/models.ts";
 import type { ChatOptions, ToolDef } from "../lib/models.ts";
 
-// 1x1 红色像素 PNG
+// 64x64 不透明纯红 PNG（RGB 色类型 2，无 alpha 通道）。
+// 历史教训：此前用 1x1 RGBA 图且 alpha=127（50% 半透明），白底合成后呈粉色，
+// step-5-preview 稳定答「粉色」导致「回复含红」断言随机失败。视觉断言必须考核
+// 识别能力，不能受图片本身的透明度歧义影响——故用不透明纯红图，断言不变。
 const RED_PIXEL_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC";
 
 const getWeatherTool: ToolDef = {
   type: "function",
