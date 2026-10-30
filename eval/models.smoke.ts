@@ -105,10 +105,15 @@ try {
 
 // --- 用例 4：vision 视觉输入 ---
 try {
+  // step-5-preview 是推理模型：maxTokens=64 时整个预算被 reasoning_content 吃光
+  // （实测 finish=length、content=""、reasoning_content 107 字符），视觉断言根本没机会执行。
+  // 给足预算，让「回复含红」真正考核视觉识别能力，而不是考核截断。
   const r = await visionChat("这张图是什么颜色？一个词", RED_PIXEL_BASE64, {
-    maxTokens: 64,
+    maxTokens: 512,
   });
-  console.log(`[vision] content=${JSON.stringify(r.content)} usage=${JSON.stringify(r.usage ?? null)}`);
+  console.log(
+    `[vision] content=${JSON.stringify(r.content)} finish=${r.finishReason ?? "-"} usage=${JSON.stringify(r.usage ?? null)}`,
+  );
   check("content 非空", r.content.trim().length > 0);
   check('回复含 "红"', r.content.includes("红"), JSON.stringify(r.content.slice(0, 80)));
 } catch (e) {
