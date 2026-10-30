@@ -1,0 +1,9 @@
+{
+  "id": "look-chsi-sub",
+  "group": "look-subdomain",
+  "category": "lookalike",
+  "url": "https://chsi.com.cn.verify-acc.cn/",
+  "expectRisk": "suspicious",
+  "page": "pages/look-chsi-sub.html",
+  "notes": "子域伪装学信网域名（真实主域 verify-acc.cn）"
+}

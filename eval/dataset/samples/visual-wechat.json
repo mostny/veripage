@@ -1,0 +1,9 @@
+{
+  "id": "visual-wechat",
+  "group": "visual-im",
+  "category": "visual",
+  "url": "https://weixin-login-center.com/",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-wechat.html",
+  "notes": "微信模板视觉仿冒（绿色扫码登录页）"
+}

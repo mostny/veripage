@@ -1,0 +1,9 @@
+{
+  "id": "official-miit",
+  "group": "official-gov",
+  "category": "official",
+  "url": "https://www.miit.gov.cn/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-miit.html",
+  "notes": "工信部真域名首页仿写（gov.cn 后缀白名单命中）"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "incomplete-500",
+  "group": "incomplete-500",
+  "category": "incomplete",
+  "url": "https://error.portal-demo.cn/",
+  "expectRisk": "unknown",
+  "page": "pages/incomplete-500.html",
+  "notes": "500 服务器错误页：只有错误提示，无页面内容"
+}

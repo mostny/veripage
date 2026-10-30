@@ -1,0 +1,10 @@
+{
+  "id": "sso-weibo-portal",
+  "group": "sso-weibo",
+  "category": "sso",
+  "url": "https://login.topic-demo.com/signin",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/sso-weibo-portal.html",
+  "hops": ["https://api.weibo.com/oauth2/authorize?client_id=demo"],
+  "notes": "话题社区登录跳转微博开放平台授权（api.weibo.com 已收录）"
+}

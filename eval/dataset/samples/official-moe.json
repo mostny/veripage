@@ -1,0 +1,9 @@
+{
+  "id": "official-moe",
+  "group": "official-gov",
+  "category": "official",
+  "url": "https://www.moe.gov.cn/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-moe.html",
+  "notes": "教育部真域名首页仿写（gov.cn 后缀白名单命中）"
+}

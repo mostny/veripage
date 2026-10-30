@@ -1,0 +1,9 @@
+{
+  "id": "visual-jd",
+  "group": "visual-ecom",
+  "category": "visual",
+  "url": "https://jd-mall-store.com/signin",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-jd.html",
+  "notes": "京东模板视觉仿冒（红色主题登录页）"
+}

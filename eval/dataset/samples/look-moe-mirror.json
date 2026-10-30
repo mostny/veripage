@@ -1,0 +1,10 @@
+{
+  "id": "look-moe-mirror",
+  "group": "look-subdomain",
+  "category": "lookalike",
+  "url": "https://moe.gov.cn.mirror.top/",
+  "expectRisk": "suspicious",
+  "blacklist": true,
+  "page": "pages/look-moe-mirror.html",
+  "notes": "子域伪装政府域名（真实主域 mirror.top）。黑名单已收录"
+}
