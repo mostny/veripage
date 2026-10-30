@@ -1,0 +1,17 @@
+# 构建上下文裁剪：依赖/产物/密钥一律不进镜像
+node_modules
+.next
+.git
+.gitignore
+# 真实 Key 只在本机 .env，绝不允许进入镜像层（.env.example 除外，随文档发布）
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+# 部署配置文件自身不需要进镜像
+Dockerfile
+docker-compose.yml
+.dockerignore
+# 本地工具目录
+.zcode
+NVIDIA Corporation
