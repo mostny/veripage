@@ -1,0 +1,250 @@
+{
+  "group": "C",
+  "label": "C 完整 orchestrator",
+  "note": "S0 放行桩 + 本地 fetcher + 全链路 orchestrator（知识库为真函数）",
+  "startedAt": "2026-10-30T02:53:23.617Z",
+  "finishedAt": "2026-10-30T02:55:29.940Z",
+  "wallMs": 126323,
+  "datasetSize": 3,
+  "completed": 3,
+  "budgetStopped": false,
+  "budget": {
+    "text": 300,
+    "vision": 100
+  },
+  "counters": {
+    "text": 3,
+    "vision": 3,
+    "promptTokens": 6810,
+    "completionTokens": 12561,
+    "finishLength": 0,
+    "fetchErrors": 0,
+    "abortedSubresources": 0
+  },
+  "models": {
+    "text": "step-5-preview",
+    "vision": "step-5-preview",
+    "promptVersion": "1.1.0",
+    "knowledgeVersion": "1.0.0+1.0.0+1.0.0",
+    "maxTokensOverride": 6000
+  },
+  "overall": {
+    "n": 3,
+    "decided": 3,
+    "malicious": {
+      "total": 2,
+      "detected": 2,
+      "detectionRate": 1,
+      "missedDefinite": 0,
+      "undecidable": 0
+    },
+    "benign": {
+      "total": 0,
+      "falsePositive": 0,
+      "fpRate": null,
+      "correct": 0,
+      "undecidable": 0
+    },
+    "undecidableCategory": {
+      "total": 1,
+      "honestUnknown": 0,
+      "honestUnknownRate": 0,
+      "definiteSafe": 1,
+      "definiteRisk": 0
+    },
+    "undecidableAll": {
+      "count": 0,
+      "rate": 0
+    },
+    "onDecidable": {
+      "malicious": {
+        "total": 2,
+        "detected": 2,
+        "detectionRate": 1
+      },
+      "benign": {
+        "total": 0,
+        "falsePositive": 0,
+        "fpRate": null
+      }
+    }
+  },
+  "byCategory": {
+    "incomplete": {
+      "n": 1,
+      "decided": 1,
+      "malicious": {
+        "total": 0,
+        "detected": 0,
+        "detectionRate": null,
+        "missedDefinite": 0,
+        "undecidable": 0
+      },
+      "benign": {
+        "total": 0,
+        "falsePositive": 0,
+        "fpRate": null,
+        "correct": 0,
+        "undecidable": 0
+      },
+      "undecidableCategory": {
+        "total": 1,
+        "honestUnknown": 0,
+        "honestUnknownRate": 0,
+        "definiteSafe": 1,
+        "definiteRisk": 0
+      },
+      "undecidableAll": {
+        "count": 0,
+        "rate": 0
+      },
+      "onDecidable": {
+        "malicious": {
+          "total": 0,
+          "detected": 0,
+          "detectionRate": null
+        },
+        "benign": {
+          "total": 0,
+          "falsePositive": 0,
+          "fpRate": null
+        }
+      }
+    },
+    "injection": {
+      "n": 1,
+      "decided": 1,
+      "malicious": {
+        "total": 1,
+        "detected": 1,
+        "detectionRate": 1,
+        "missedDefinite": 0,
+        "undecidable": 0
+      },
+      "benign": {
+        "total": 0,
+        "falsePositive": 0,
+        "fpRate": null,
+        "correct": 0,
+        "undecidable": 0
+      },
+      "undecidableCategory": {
+        "total": 0,
+        "honestUnknown": 0,
+        "honestUnknownRate": null,
+        "definiteSafe": 0,
+        "definiteRisk": 0
+      },
+      "undecidableAll": {
+        "count": 0,
+        "rate": 0
+      },
+      "onDecidable": {
+        "malicious": {
+          "total": 1,
+          "detected": 1,
+          "detectionRate": 1
+        },
+        "benign": {
+          "total": 0,
+          "falsePositive": 0,
+          "fpRate": null
+        }
+      }
+    },
+    "lookalike": {
+      "n": 1,
+      "decided": 1,
+      "malicious": {
+        "total": 1,
+        "detected": 1,
+        "detectionRate": 1,
+        "missedDefinite": 0,
+        "undecidable": 0
+      },
+      "benign": {
+        "total": 0,
+        "falsePositive": 0,
+        "fpRate": null,
+        "correct": 0,
+        "undecidable": 0
+      },
+      "undecidableCategory": {
+        "total": 0,
+        "honestUnknown": 0,
+        "honestUnknownRate": null,
+        "definiteSafe": 0,
+        "definiteRisk": 0
+      },
+      "undecidableAll": {
+        "count": 0,
+        "rate": 0
+      },
+      "onDecidable": {
+        "malicious": {
+          "total": 1,
+          "detected": 1,
+          "detectionRate": 1
+        },
+        "benign": {
+          "total": 0,
+          "falsePositive": 0,
+          "fpRate": null
+        }
+      }
+    }
+  },
+  "byGroup": {
+    "incomplete-404": {
+      "n": 1,
+      "detectionRate": null,
+      "fpRate": null,
+      "honestUnknownRate": 0,
+      "detected": 0,
+      "maliciousTotal": 0,
+      "fp": 0,
+      "benignTotal": 0
+    },
+    "inject-body": {
+      "n": 1,
+      "detectionRate": 1,
+      "fpRate": null,
+      "honestUnknownRate": null,
+      "detected": 1,
+      "maliciousTotal": 1,
+      "fp": 0,
+      "benignTotal": 0
+    },
+    "look-stealth": {
+      "n": 1,
+      "detectionRate": 1,
+      "fpRate": null,
+      "honestUnknownRate": null,
+      "detected": 1,
+      "maliciousTotal": 1,
+      "fp": 0,
+      "benignTotal": 0
+    }
+  },
+  "latency": {
+    "n": 3,
+    "avg": 42108,
+    "p50": 44490,
+    "p95": 50004,
+    "max": 50004
+  },
+  "fetchStats": {
+    "fetches": 3,
+    "abortedSubresources": 0,
+    "fetchErrors": 0
+  },
+  "evidenceSupport": {
+    "samplesWithFindings": 3,
+    "findings": 16,
+    "supported": 16,
+    "rate": 1,
+    "unsupportedBySample": []
+  },
+  "validateOk": 3,
+  "validateFailures": []
+}

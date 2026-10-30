@@ -1,0 +1,80 @@
+=== W3 对照实验：三组对照 + 两组消融 ===
+组：A, B, C, C-no-vision, C-no-kb（试跑 limit=6）
+.env 存在：是（模型组走真实 API）
+
+--- 运行组 A：node --env-file=.env eval/experiments/run-group.mjs --group A --max-text 300 --max-vision 100 --limit 6 ---
+(node:59896) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 A（A 黑名单+规则） 样本 6 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:55380（本地，无外网请求）
+[A  1/6] XX incomplete-404         risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  2/6] XX inject-body-alipay     risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  3/6] XX look-12306-cncom       risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  4/6] OK official-12306         risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  5/6] XX shortener-official     risk=suspicious           0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  6/6] XX visual-12306           risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+=== 组 A 完成：6/6 样本，墙钟 0s ===
+    恶意检出 0/3，良性误报 1/2，unknown 0/6，调用 text=0 vision=0
+    结果：D:\work\project\传智杯\veripage\eval\experiments\results\A.jsonl
+
+--- 运行组 B：node --env-file=.env eval/experiments/run-group.mjs --group B --max-text 300 --max-vision 100 --limit 6 ---
+(node:44752) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 B（B 裸多模态模型） 样本 6 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:55381（本地，无外网请求）
+[B  1/6] XX incomplete-404         risk=no_significant_risk  7.5s calls(text+0,vision+1) 累计 text=0 vision=1 tok=818+626
+[B  2/6] OK inject-body-alipay     risk=high                 5.0s calls(text+0,vision+1) 累计 text=0 vision=2 tok=1673+962
+[B  3/6] ?? look-12306-cncom       risk=unknown              7.9s calls(text+0,vision+1) 累计 text=0 vision=3 tok=2502+1480
+[B  4/6] ?? official-12306         risk=unknown              25.4s calls(text+0,vision+1) 累计 text=0 vision=4 tok=3394+3480
+[B  5/6] XX shortener-official     risk=suspicious           11.8s calls(text+0,vision+1) 累计 text=0 vision=5 tok=4240+4510
+[B  6/6] OK visual-12306           risk=suspicious           17.3s calls(text+0,vision+1) 累计 text=0 vision=6 tok=5067+5775
+=== 组 B 完成：6/6 样本，墙钟 75s ===
+    恶意检出 2/3，良性误报 1/2，unknown 2/6，调用 text=0 vision=6
+    结果：D:\work\project\传智杯\veripage\eval\experiments\results\B.jsonl
+
+--- 运行组 C：node --env-file=.env eval/experiments/run-group.mjs --group C --max-text 300 --max-vision 100 --limit 6 ---
+(node:55896) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 C（C 完整 orchestrator） 样本 6 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:55037（本地，无外网请求）
+[C  1/6] XX incomplete-404         risk=no_significant_risk  20.8s calls(text+1,vision+1) 累计 text=1 vision=1 tok=2203+2233
+[C  2/6] ?? inject-body-alipay     risk=unknown              46.7s calls(text+2,vision+1) 累计 text=3 vision=2 tok=6161+6603
+[C  3/6] ?? look-12306-cncom       risk=unknown              56.6s calls(text+2,vision+1) 累计 text=5 vision=3 tok=9803+11799
+[C  4/6] OK official-12306         risk=no_significant_risk  45.3s calls(text+2,vision+1) 累计 text=7 vision=4 tok=13503+16363
+[C  5/6] ?? shortener-official     risk=unknown              47.9s calls(text+2,vision+1) 累计 text=9 vision=5 tok=17229+20810
+[C  6/6] ?? visual-12306           risk=unknown              40.9s calls(text+2,vision+1) 累计 text=11 vision=6 tok=20867+25168
+=== 组 C 完成：6/6 样本，墙钟 258s ===
+    恶意检出 0/3，良性误报 0/2，unknown 4/6，调用 text=11 vision=6
+    结果：D:\work\project\传智杯\veripage\eval\experiments\results\C.jsonl
+
+--- 运行组 C-no-vision：node --env-file=.env eval/experiments/run-group.mjs --group C-no-vision --max-text 300 --max-vision 100 --limit 6 ---
+(node:50088) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 C-no-vision（C 消融·去视觉） 样本 6 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:49355（本地，无外网请求）
+[C-no-vision  1/6] OK incomplete-404         risk=unknown              38.8s calls(text+2,vision+0) 累计 text=2 vision=0 tok=2724+4000
+[C-no-vision  2/6] ?? inject-body-alipay     risk=unknown              45.1s calls(text+2,vision+0) 累计 text=4 vision=0 tok=5814+8000
+[C-no-vision  3/6] ?? look-12306-cncom       risk=unknown              45.2s calls(text+2,vision+0) 累计 text=6 vision=0 tok=8604+12000
+[C-no-vision  4/6] ?? official-12306         risk=unknown              43.1s calls(text+2,vision+0) 累计 text=8 vision=0 tok=11454+16000
+[C-no-vision  5/6] ?? shortener-official     risk=unknown              48.1s calls(text+2,vision+0) 累计 text=10 vision=0 tok=14326+20000
+[C-no-vision  6/6] ?? visual-12306           risk=unknown              43.1s calls(text+2,vision+0) 累计 text=12 vision=0 tok=17128+24000
+=== 组 C-no-vision 完成：6/6 样本，墙钟 263s ===
+    恶意检出 0/3，良性误报 0/2，unknown 6/6，调用 text=12 vision=0
+    结果：D:\work\project\传智杯\veripage\eval\experiments\results\C-no-vision.jsonl
+
+--- 运行组 C-no-kb：node --env-file=.env eval/experiments/run-group.mjs --group C-no-kb --max-text 300 --max-vision 100 --limit 6 ---
+(node:8512) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 C-no-kb（C 消融·去知识库） 样本 6 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:60959（本地，无外网请求）
+[C-no-kb  1/6] OK incomplete-404         risk=unknown              42.9s calls(text+2,vision+1) 累计 text=2 vision=1 tok=3538+4219
