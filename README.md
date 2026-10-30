@@ -19,16 +19,16 @@
 
 ## 检测线现状（以 main 实际代码为准，不夸大）
 
-主检出链路（链接检测线）已在 main 完整可用；其余能力在各分支开发 / 审核中，**均未合并进 main**，状态如实标注：
-
-| 检测线 | 现状 | 所在分支 / PR |
+| 检测线 | 现状 | 合入记录 |
 |---|---|---|
-| 链接检测线（S0 边界 + 三闸门 + 证据约束报告） | ✅ main 已完整可用 | `main`（fc1061e） |
-| 知识检索线（品牌白名单 / 钓鱼案例 / SSO 合法解释） | 检索工具已在 main；接线进编排器审核中 | `yan/m4-knowledge-wiring` · PR #7 |
-| 文本体检线（AIGC 识别 + 隐私脱敏） | 已开发完成，PR 审核中，**未合并 main** | `yan/text-line-aigc-privacy` · PR #8 |
-| 复核治理线（结论 ↔ 证据联动工作台） | 已开发完成，PR 审核中，**未合并 main** | `fukaki/m3-workbench` · PR #6 |
+| 链接检测线（S0 边界 + 三闸门 + 证据约束报告） | ✅ main 已完整可用 | main 主线（含 M1 修复，PR #3） |
+| 知识检索线（品牌白名单 / 钓鱼案例 / SSO 合法解释） | ✅ main 已合并：知识证据进编排器 + 有界补证轮 + `versions.knowledge` | PR #7 / #11 |
+| 文本体检线（AIGC 识别 + 隐私脱敏） | ✅ main 已合并：`/text` 页 + `/api/text` + 本地正则脱敏 | PR #8 |
+| W3 对照实验（三组 + 两组消融 + 61 样本 fixture） | ✅ main 已合并：数据集 / 实验壳 / 报告 | PR #12 |
+| 复核治理线（会话隔离截图产物 + 结论 ↔ 证据联动工作台） | 已开发完成，PR 审核中，**未合并 main** | `fukaki/m3-workbench` · PR #6 / `fukaki/m2-artifacts` · PR #5 |
+| 部署配置与本文档 | 审核中（Vercel + Docker 双方案已备，未绑定账号） | `yan/deploy-readme` · PR #10 |
 
-### 链接检测线：一次检测发生了什么（main @ fc1061e）
+### 链接检测线：一次检测发生了什么（main @ 1fd7954）
 
 1. **S0 访问边界**（`lib/guard/access.ts`）：协议白名单；域名先解析再校验 IP，拒绝私网 / 链路本地 / 云元数据地址（防 SSRF 与 DNS 重绑定）。被拒则不启动浏览器，步骤如实标记 `skipped`。
 2. **闸门① URL 静态分析**（`lib/tools/url-static.ts`）：纯规则、不联网——域名编辑距离、子域伪装拆穿（`taobao.com.xxx.cn` 的真实可注册主域是 `xxx.cn`）、punycode 同形字符、短链展开预判、黑名单比对、URL 参数 payload 痕迹。
@@ -132,7 +132,7 @@ flowchart TD
 
 W3 三组对照 + 两组消融（A 黑名单+规则 vs B 裸多模态模型 vs C 完整 orchestrator；消融：去视觉 / 去知识库；61 个本地 fixture 样本，不访问外部真实站点）：
 
-- [W3 三组对照实验报告](eval/experiments/results/report.md) —— **占位链接**：报告在分支 `yan/w3-experiments`（draft PR #9 审核中），尚未合并 main；合并后本链接即在 main 生效。复跑方式（合并后）：`node eval/experiments/run-all.mjs`（走真实模型端点，消耗 Key 额度）。
+- [W3 三组对照实验报告](eval/experiments/results/report.md) —— 已在 main（PR #12）。核心数字：恶意检出 A 30.3% / B 63.6% / **C 87.9%**，良性误报 A 17.4% / B 39.1% / **C 0%**，结论证据支持率 **100%（366/366，程序校验）**；黑名单未命中样本上 A 仅 14.8% vs C 85.2%。复跑方式（走真实模型端点，消耗 Key 额度，全量约 45 分钟）：`node eval/experiments/run-all.mjs`；**试跑必须加 `--tag <名字>`**（产物落 `results/<名字>/`，不碰 `results/` 下已提交的全量产物）。
 
 ## 团队与 Git 历史
 
