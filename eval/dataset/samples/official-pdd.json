@@ -1,0 +1,9 @@
+{
+  "id": "official-pdd",
+  "group": "official-ecom",
+  "category": "official",
+  "url": "https://www.pinduoduo.com/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-pdd.html",
+  "notes": "拼多多真域名首页仿写"
+}

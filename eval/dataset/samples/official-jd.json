@@ -1,0 +1,9 @@
+{
+  "id": "official-jd",
+  "group": "official-ecom",
+  "category": "official",
+  "url": "https://www.jd.com/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-jd.html",
+  "notes": "京东真域名首页仿写：红色主题+搜索+分类导航"
+}

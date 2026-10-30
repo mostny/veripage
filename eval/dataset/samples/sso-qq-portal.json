@@ -1,0 +1,9 @@
+{
+  "id": "sso-qq-portal",
+  "group": "sso-qq",
+  "category": "sso",
+  "url": "https://portal.school-demo.cn/login",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/sso-qq-portal.html",
+  "notes": "校园门户登录页：表单 post 到 graph.qq.com（QQ 互联，知识库已收录 SSO），考合法解释不误报"
+}

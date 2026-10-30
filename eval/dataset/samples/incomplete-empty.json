@@ -1,0 +1,9 @@
+{
+  "id": "incomplete-empty",
+  "group": "incomplete-empty",
+  "category": "incomplete",
+  "url": "https://blank.portal-demo.cn/",
+  "expectRisk": "unknown",
+  "page": "pages/incomplete-empty.html",
+  "notes": "空白页：title 与正文均为空"
+}

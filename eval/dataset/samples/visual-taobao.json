@@ -1,0 +1,9 @@
+{
+  "id": "visual-taobao",
+  "group": "visual-ecom",
+  "category": "visual",
+  "url": "https://shop-mall-demo.com/login",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-taobao.html",
+  "notes": "淘宝模板视觉仿冒：同布局换 logo/配色，域名与官方无关；闸门①零命中，只能靠视觉+内容发现"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "sso-cdn-docs",
+  "group": "sso-cdn",
+  "category": "sso",
+  "url": "https://docs.tools-demo.com/guide",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/sso-cdn-docs.html",
+  "notes": "工具文档站：静态资源走 jsDelivr + BootCDN（均已收录 CDN 白名单），考跨域脚本不误报"
+}

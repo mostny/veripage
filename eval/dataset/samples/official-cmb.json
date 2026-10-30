@@ -1,0 +1,9 @@
+{
+  "id": "official-cmb",
+  "group": "official-bank",
+  "category": "official",
+  "url": "https://www.cmbchina.com/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-cmb.html",
+  "notes": "招商银行真域名首页仿写"
+}

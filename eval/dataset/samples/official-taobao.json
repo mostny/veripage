@@ -1,0 +1,9 @@
+{
+  "id": "official-taobao",
+  "group": "official-ecom",
+  "category": "official",
+  "url": "https://www.taobao.com/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-taobao.html",
+  "notes": "淘宝网真域名首页仿写：搜索+导航，无密码表单；含阿里云 CDN 脚本（第三方脚本白名单命中场景）"
+}

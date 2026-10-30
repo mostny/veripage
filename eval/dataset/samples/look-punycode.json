@@ -1,0 +1,10 @@
+{
+  "id": "look-punycode",
+  "group": "look-typo",
+  "category": "lookalike",
+  "url": "https://xn--taoba-nye.com/login",
+  "expectRisk": "suspicious",
+  "blacklist": true,
+  "page": "pages/look-punycode.html",
+  "notes": "punycode 同形字符域（西里尔 о 伪装 taobao 的 o）。黑名单已收录"
+}

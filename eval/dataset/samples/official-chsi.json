@@ -1,0 +1,9 @@
+{
+  "id": "official-chsi",
+  "group": "official-portal",
+  "category": "official",
+  "url": "https://www.chsi.com.cn/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-chsi.html",
+  "notes": "学信网真域名首页仿写：学籍查询入口"
+}

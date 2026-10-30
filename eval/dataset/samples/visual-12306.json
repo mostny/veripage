@@ -1,0 +1,9 @@
+{
+  "id": "visual-12306",
+  "group": "visual-gov",
+  "category": "visual",
+  "url": "https://12306-ticket-center.com/login",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-12306.html",
+  "notes": "12306 模板视觉仿冒（查询+登录）"
+}

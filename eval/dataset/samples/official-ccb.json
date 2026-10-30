@@ -1,0 +1,9 @@
+{
+  "id": "official-ccb",
+  "group": "official-bank",
+  "category": "official",
+  "url": "https://www.ccb.com/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-ccb.html",
+  "notes": "建设银行真域名首页仿写"
+}

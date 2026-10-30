@@ -1,0 +1,9 @@
+{
+  "id": "official-tmall",
+  "group": "official-ecom",
+  "category": "official",
+  "url": "https://www.tmall.com/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-tmall.html",
+  "notes": "天猫真域名首页仿写：品牌促销楼层+搜索框"
+}
