@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import Link from "next/link";
 
 export default function HomePage() {
   const router = useRouter();
@@ -77,6 +78,25 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+
+        <Link
+          href="/text"
+          className="mt-4 block rounded-xl border border-neutral-800 bg-neutral-900 p-5 shadow-lg transition hover:border-sky-500/60"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-neutral-200">
+                文本第二条线 <span className="text-sky-400">·</span> AIGC 识别 + 隐私脱敏
+              </div>
+              <p className="mt-1 text-xs text-neutral-500">
+                AIGC 判定带保留意见；身份证号 / 手机号 / 银行卡号 / 邮箱四类本地正则脱敏，命中位置可查
+              </p>
+            </div>
+            <span className="shrink-0 text-sm text-sky-400" aria-hidden>
+              进入 →
+            </span>
+          </div>
+        </Link>
 
         <p className="mt-6 text-center text-xs leading-relaxed text-neutral-600">
           你提交的 URL 仅用于本次检测，本演示环境不保存任何输入。
