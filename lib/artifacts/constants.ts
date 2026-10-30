@@ -1,0 +1,5 @@
+export const ARTIFACT_TTL_MS = 15 * 60 * 1000;
+export const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
+export const MAX_ARTIFACT_STORE_BYTES = 64 * 1024 * 1024;
+export const MAX_ARTIFACT_COUNT = 128;
+export const MAX_SCREENSHOT_PIXELS = 16_000_000;

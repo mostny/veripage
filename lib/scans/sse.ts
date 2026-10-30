@@ -11,8 +11,10 @@ export interface ScanSseOptions {
   taskId: string;
   timeoutMs: number;
   headers?: HeadersInit;
-  onSettled?: () => void | Promise<void>;
+  onSettled?: (outcome: ScanSseOutcome) => void | Promise<void>;
 }
+
+export type ScanSseOutcome = "reported" | "failed" | "timed-out" | "cancelled";
 
 function errorReason(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -35,6 +37,7 @@ export function createScanSseResponse(
   let terminalSent = false;
   let responseClosed = false;
   let timeoutFired = false;
+  let outcome: ScanSseOutcome | null = null;
   let settled = false;
   const encoder = new TextEncoder();
 
@@ -42,7 +45,7 @@ export function createScanSseResponse(
     if (settled) return;
     settled = true;
     try {
-      await options.onSettled?.();
+      await options.onSettled?.(outcome ?? "cancelled");
     } catch {
       // Cleanup errors must not turn a terminal response into an unhandled rejection.
     }
@@ -60,12 +63,15 @@ export function createScanSseResponse(
       // The client may already have cancelled the stream.
     }
   };
-  const send = (payload: unknown): void => {
-    if (responseClosed) return;
+  const send = (payload: unknown): boolean => {
+    if (responseClosed) return false;
     try {
       streamController?.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      return true;
     } catch {
+      outcome = "cancelled";
       abort(new DOMException("The client disconnected", "AbortError"));
+      return false;
     }
   };
   const sendFailure = (reason: string): void => {
@@ -75,6 +81,7 @@ export function createScanSseResponse(
   };
 
   const onRequestAbort = (): void => {
+    if (outcome !== "reported") outcome = "cancelled";
     abort(request.signal.reason ?? new DOMException("The client disconnected", "AbortError"));
     close();
   };
@@ -103,6 +110,7 @@ export function createScanSseResponse(
       const timeoutPromise = new Promise<never>((_resolve, reject) => {
         timeoutId = setTimeout(() => {
           timeoutFired = true;
+          outcome = "timed-out";
           const reason = new Error("检测总时限已达设定预算");
           abort(reason);
           reject(reason);
@@ -123,12 +131,16 @@ export function createScanSseResponse(
         ]);
         if (!abortController.signal.aborted && !terminalSent) {
           terminalSent = true;
-          send({ type: "report", snapshot });
+          if (send({ type: "report", snapshot })) outcome = "reported";
         }
       } catch (error) {
         if (timeoutFired) {
+          outcome = "timed-out";
           sendFailure(errorReason(error));
-        } else if (!request.signal.aborted && !responseClosed) {
+        } else if (outcome === "cancelled" || request.signal.aborted || responseClosed) {
+          outcome = "cancelled";
+        } else {
+          outcome = "failed";
           sendFailure("检测未能完成：" + errorReason(error));
         }
       } finally {
@@ -140,6 +152,7 @@ export function createScanSseResponse(
       }
     },
     cancel(reason) {
+      if (outcome !== "reported") outcome = "cancelled";
       abort(reason ?? new DOMException("The client cancelled the request", "AbortError"));
       request.signal.removeEventListener("abort", onRequestAbort);
       if (timeoutId) clearTimeout(timeoutId);

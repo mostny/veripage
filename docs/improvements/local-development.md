@@ -66,7 +66,7 @@ node node_modules/next/dist/bin/next start --hostname 127.0.0.1
 node node_modules/playwright/cli.js install chromium --only-shell
 ```
 
-本次只安装了 headless shell，不含完整有头 Chromium。若后续需要可见浏览器调试，再安装完整 Chromium；本次仅验证了自建内存静态页面截图。
+本地安装为 headless shell，不含完整有头 Chromium。若后续需要可见浏览器调试，再安装完整 Chromium。
 
 浏览器成功启动不证明取证环境安全。当前源代码仍有 `--no-sandbox`、连接级 DNS/网络隔离等待处理项，见计划 M1。不要为了测试内网站点修改生产访问策略。
 
@@ -88,9 +88,31 @@ node node_modules/playwright/cli.js install chromium --only-shell
 - Key 仅留服务端，不加 `NEXT_PUBLIC_`，不放仓库、导出包、日志或对话。
 - 无 Key 时仍可开发页面、离线模型替身、输入拦截和数据契约，不应临时填入其他账户凭据。
 
+## M1—M3 离线回归
+
+```bash
+node eval/evidence.smoke.ts
+node eval/prompts.smoke.ts
+node eval/m1-regressions.smoke.ts
+node eval/scan-sse.smoke.ts
+node eval/artifact-store.smoke.ts
+node eval/evidence-relations.smoke.ts
+
+# 需要先有一份成功的 production build；仅访问 loopback，模型和外站请求均被 fixture 替代
+node eval/workbench.e2e.mjs
+```
+
+`workbench.e2e.mjs` 会启动并关闭本任务拥有的本地 `next start`，验证桌面/手机视口、截图加载、会话 cookie、键盘选结论、双向证据联动、截图过期、服务端失败和无报告 EOF。它不会导航到待测 URL，也不需要 `.env`。视觉复核可在本机有 Noto Sans CJK SC 时加：
+
+```bash
+VERIPAGE_REVIEW_CJK_FONT=/path/to/NotoSansCJKsc-Regular.otf node eval/workbench.e2e.mjs
+```
+
+该环境变量只用于 E2E 截图审阅时加载本地字体，不进入应用包。裸 Linux 浏览器可能没有中文字库；缺字截图不作为产品视觉验收依据。
+
 ## Git 状态
 
-本次新增文档位于 `docs/improvements/`，在 `improve/evidence-workbench` 分支维护；提交与发布状态可用下列命令核对。`node_modules`、`.next`、`next-env.d.ts` 依照原 `.gitignore` 被忽略。准备阶段没有修改原有依赖清单与锁文件。
+改进计划和本地基线位于 `docs/improvements/`。`node_modules`、`.next`、`next-env.d.ts` 依照原 `.gitignore` 被忽略。本次任务不需改依赖清单或锁文件。
 
 ```bash
 git status --short --branch
