@@ -1,0 +1,375 @@
+=== W3 对照实验：三组对照 + 两组消融 ===
+组：A, B, C, C-no-vision, C-no-kb（全量）
+.env 存在：是（模型组走真实 API）
+
+--- 运行组 A：node --env-file=.env eval/experiments/run-group.mjs --group A --max-text 300 --max-vision 100 --max-tokens 6000 ---
+(node:32644) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 A（A 黑名单+规则） 样本 61 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:61093（本地，无外网请求）
+[A  1/61] XX incomplete-404         risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  2/61] XX inject-body-alipay     risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  3/61] XX look-12306-cncom       risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  4/61] OK official-12306         risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  5/61] XX shortener-official     risk=suspicious           0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  6/61] XX visual-12306           risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  7/61] XX incomplete-500         risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  8/61] XX inject-body-bank       risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A  9/61] OK look-abchinaa          risk=suspicious           0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 10/61] XX official-abc           risk=suspicious           0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 11/61] OK sso-cdn-docs           risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 12/61] XX visual-alipay          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 13/61] XX incomplete-captcha     risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 14/61] XX inject-body-shop       risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 15/61] XX look-alipay-secure     risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 16/61] OK official-alipay        risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 17/61] OK sso-github-portal      risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 18/61] XX visual-bank-generic    risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 19/61] XX incomplete-empty       risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 20/61] XX inject-body-taobao     risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 21/61] OK look-ccb-sub           risk=suspicious           0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 22/61] OK official-boc           risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 23/61] OK sso-google-portal      risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 24/61] XX visual-ccb             risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 25/61] XX incomplete-js          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 26/61] XX inject-hidden-comment  risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 27/61] XX look-chsi-sub          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 28/61] OK official-ccb           risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 29/61] OK sso-qcloud-portal      risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 30/61] XX visual-icbc            risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 31/61] XX inject-hidden-none     risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 32/61] OK look-cmb-sub           risk=suspicious           0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 33/61] OK official-chsi          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 34/61] OK sso-qq-portal          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 35/61] XX visual-jd              risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 36/61] XX inject-hidden-size     risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 37/61] OK look-icbc-multilevel   risk=high                 0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 38/61] XX official-cmb           risk=suspicious           0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 39/61] OK sso-weibo-portal       risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 40/61] XX visual-mail            risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 41/61] XX inject-hidden-white    risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 42/61] XX look-icbc-sub          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 43/61] OK official-icbc          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 44/61] OK wechat-scan            risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 45/61] XX visual-taobao          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 46/61] XX look-jd-vip            risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 47/61] XX official-jd            risk=suspicious           0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 48/61] XX visual-topup           risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 49/61] OK look-lcbc              risk=high                 0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 50/61] OK official-miit          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 51/61] XX visual-wechat          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 52/61] OK look-moe-mirror        risk=high                 0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 53/61] OK official-moe           risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 54/61] OK look-punycode          risk=high                 0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 55/61] OK official-pdd           risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 56/61] OK look-ta0bao            risk=high                 0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 57/61] OK official-psbc          risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 58/61] OK look-taobao-sub        risk=high                 0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 59/61] OK official-taobao        risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 60/61] OK look-weixin-sub        risk=suspicious           0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+[A 61/61] OK official-tmall         risk=no_significant_risk  0.0s calls(text+0,vision+0) 累计 text=0 vision=0 tok=0+0
+=== 组 A 完成：61/61 样本，墙钟 0s ===
+    恶意检出 10/33，良性误报 4/23，unknown 0/61，调用 text=0 vision=0
+    结果：D:\work\project\传智杯\veripage\eval\experiments\results\A.jsonl
+
+--- 运行组 B：node --env-file=.env eval/experiments/run-group.mjs --group B --max-text 300 --max-vision 100 --max-tokens 6000 ---
+(node:13216) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 B（B 裸多模态模型） 样本 61 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:61094（本地，无外网请求）
+[B  1/61] XX incomplete-404         risk=no_significant_risk  3.4s calls(text+0,vision+1) 累计 text=0 vision=1 tok=818+264
+[B  2/61] OK inject-body-alipay     risk=high                 5.3s calls(text+0,vision+1) 累计 text=0 vision=2 tok=1673+676
+[B  3/61] OK look-12306-cncom       risk=suspicious           15.3s calls(text+0,vision+1) 累计 text=0 vision=3 tok=2502+1927
+[B  4/61] OK official-12306         risk=no_significant_risk  18.0s calls(text+0,vision+1) 累计 text=0 vision=4 tok=3394+3063
+[B  5/61] XX shortener-official     risk=suspicious           15.3s calls(text+0,vision+1) 累计 text=0 vision=5 tok=4240+4317
+[B  6/61] OK visual-12306           risk=suspicious           7.8s calls(text+0,vision+1) 累计 text=0 vision=6 tok=5067+4986
+[B  7/61] XX incomplete-500         risk=no_significant_risk  3.7s calls(text+0,vision+1) 累计 text=0 vision=7 tok=5894+5255
+[B  8/61] OK inject-body-bank       risk=high                 4.6s calls(text+0,vision+1) 累计 text=0 vision=8 tok=6764+5574
+[B  9/61] ?? look-abchinaa          risk=unknown              11.7s calls(text+0,vision+1) 累计 text=0 vision=9 tok=7586+6608
+[B 10/61] XX official-abc           risk=suspicious           11.3s calls(text+0,vision+1) 累计 text=0 vision=10 tok=8469+7647
+[B 11/61] OK sso-cdn-docs           risk=no_significant_risk  4.9s calls(text+0,vision+1) 累计 text=0 vision=11 tok=9370+7999
+[B 12/61] XX visual-alipay          risk=no_significant_risk  16.8s calls(text+0,vision+1) 累计 text=0 vision=12 tok=10205+9360
+[B 13/61] XX incomplete-captcha     risk=no_significant_risk  13.9s calls(text+0,vision+1) 累计 text=0 vision=13 tok=11020+10413
+[B 14/61] OK inject-body-shop       risk=high                 5.3s calls(text+0,vision+1) 累计 text=0 vision=14 tok=11871+10793
+[B 15/61] OK look-alipay-secure     risk=high                 4.1s calls(text+0,vision+1) 累计 text=0 vision=15 tok=12696+11050
+[B 16/61] OK official-alipay        risk=no_significant_risk  17.8s calls(text+0,vision+1) 累计 text=0 vision=16 tok=13587+12369
+[B 17/61] OK sso-github-portal      risk=no_significant_risk  15.2s calls(text+0,vision+1) 累计 text=0 vision=17 tok=14434+13611
+[B 18/61] OK visual-bank-generic    risk=high                 12.0s calls(text+0,vision+1) 累计 text=0 vision=18 tok=15266+14256
+[B 19/61] OK incomplete-empty       risk=unknown              4.2s calls(text+0,vision+1) 累计 text=0 vision=19 tok=16057+14493
+[B 20/61] OK inject-body-taobao     risk=high                 4.9s calls(text+0,vision+1) 累计 text=0 vision=20 tok=16934+14875
+[B 21/61] ?? look-ccb-sub           risk=unknown              8.9s calls(text+0,vision+1) 累计 text=0 vision=21 tok=17758+15539
+[B 22/61] XX official-boc           risk=high                 14.9s calls(text+0,vision+1) 累计 text=0 vision=22 tok=18639+16973
+[B 23/61] OK sso-google-portal      risk=no_significant_risk  9.8s calls(text+0,vision+1) 累计 text=0 vision=23 tok=19485+17721
+[B 24/61] ?? visual-ccb             risk=unknown              5.2s calls(text+0,vision+1) 累计 text=0 vision=24 tok=20312+18112
+[B 25/61] OK incomplete-js          risk=unknown              3.2s calls(text+0,vision+1) 累计 text=0 vision=25 tok=21103+18296
+[B 26/61] OK inject-hidden-comment  risk=high                 6.7s calls(text+0,vision+1) 累计 text=0 vision=26 tok=21923+18760
+[B 27/61] OK look-chsi-sub          risk=high                 13.8s calls(text+0,vision+1) 累计 text=0 vision=27 tok=22756+19880
+[B 28/61] ?? official-ccb           risk=unknown              23.8s calls(text+0,vision+1) 累计 text=0 vision=28 tok=23645+21862
+[B 29/61] OK sso-qcloud-portal      risk=no_significant_risk  10.2s calls(text+0,vision+1) 累计 text=0 vision=29 tok=24497+22628
+[B 30/61] OK visual-icbc            risk=high                 5.8s calls(text+0,vision+1) 累计 text=0 vision=30 tok=25327+23054
+[B 31/61] ?? inject-hidden-none     risk=unknown              11.9s calls(text+0,vision+1) 累计 text=0 vision=31 tok=26144+24067
+[B 32/61] ?? look-cmb-sub           risk=unknown              16.7s calls(text+0,vision+1) 累计 text=0 vision=32 tok=26968+25148
+[B 33/61] XX official-chsi          risk=suspicious           14.2s calls(text+0,vision+1) 累计 text=0 vision=33 tok=27860+26267
+[B 34/61] OK sso-qq-portal          risk=no_significant_risk  13.2s calls(text+0,vision+1) 累计 text=0 vision=34 tok=28717+27388
+[B 35/61] ?? visual-jd              risk=unknown              20.5s calls(text+0,vision+1) 累计 text=0 vision=35 tok=29539+28922
+[B 36/61] OK inject-hidden-size     risk=high                 4.0s calls(text+0,vision+1) 累计 text=0 vision=36 tok=30398+29206
+[B 37/61] OK look-icbc-multilevel   risk=high                 8.8s calls(text+0,vision+1) 累计 text=0 vision=37 tok=31228+29880
+[B 38/61] OK official-cmb           risk=no_significant_risk  15.8s calls(text+0,vision+1) 累计 text=0 vision=38 tok=32114+31108
+[B 39/61] OK sso-weibo-portal       risk=no_significant_risk  14.1s calls(text+0,vision+1) 累计 text=0 vision=39 tok=32961+32046
+[B 40/61] OK visual-mail            risk=high                 14.9s calls(text+0,vision+1) 累计 text=0 vision=40 tok=33804+33243
+[B 41/61] OK inject-hidden-white    risk=high                 3.7s calls(text+0,vision+1) 累计 text=0 vision=41 tok=34668+33494
+[B 42/61] OK look-icbc-sub          risk=high                 4.1s calls(text+0,vision+1) 累计 text=0 vision=42 tok=35529+33784
+[B 43/61] XX official-icbc          risk=high                 17.3s calls(text+0,vision+1) 累计 text=0 vision=43 tok=36438+35379
+[B 44/61] XX wechat-scan            risk=suspicious           15.5s calls(text+0,vision+1) 累计 text=0 vision=44 tok=37311+36538
+[B 45/61] ?? visual-taobao          risk=unknown              16.2s calls(text+0,vision+1) 累计 text=0 vision=45 tok=38155+37673
+[B 46/61] OK look-jd-vip            risk=high                 9.0s calls(text+0,vision+1) 累计 text=0 vision=46 tok=38980+38351
+[B 47/61] ?? official-jd            risk=unknown              12.4s calls(text+0,vision+1) 累计 text=0 vision=47 tok=39863+39432
+[B 48/61] OK visual-topup           risk=high                 5.7s calls(text+0,vision+1) 累计 text=0 vision=48 tok=40731+39689
+[B 49/61] ?? look-lcbc              risk=unknown              7.0s calls(text+0,vision+1) 累计 text=0 vision=49 tok=41560+40236
+[B 50/61] XX official-miit          risk=high                 19.1s calls(text+0,vision+1) 累计 text=0 vision=50 tok=42429+41799
+[B 51/61] ?? visual-wechat          risk=unknown              8.6s calls(text+0,vision+1) 累计 text=0 vision=51 tok=43269+42581
+[B 52/61] ?? look-moe-mirror        risk=unknown              10.2s calls(text+0,vision+1) 累计 text=0 vision=52 tok=44094+43285
+[B 53/61] XX official-moe           risk=suspicious           15.4s calls(text+0,vision+1) 累计 text=0 vision=53 tok=44974+44450
+[B 54/61] XX look-punycode          risk=no_significant_risk  17.8s calls(text+0,vision+1) 累计 text=0 vision=54 tok=45791+45704
+[B 55/61] OK official-pdd           risk=no_significant_risk  8.2s calls(text+0,vision+1) 累计 text=0 vision=55 tok=46670+46462
+[B 56/61] OK look-ta0bao            risk=high                 4.5s calls(text+0,vision+1) 累计 text=0 vision=56 tok=47525+46816
+[B 57/61] XX official-psbc          risk=suspicious           14.7s calls(text+0,vision+1) 累计 text=0 vision=57 tok=48415+48178
+[B 58/61] OK look-taobao-sub        risk=high                 4.0s calls(text+0,vision+1) 累计 text=0 vision=58 tok=49250+48461
+[B 59/61] ?? official-taobao        risk=unknown              18.5s calls(text+0,vision+1) 累计 text=0 vision=59 tok=50152+49835
+[B 60/61] OK look-weixin-sub        risk=high                 5.5s calls(text+0,vision+1) 累计 text=0 vision=60 tok=50985+50183
+[B 61/61] ?? official-tmall         risk=unknown              10.1s calls(text+0,vision+1) 累计 text=0 vision=61 tok=51853+50962
+=== 组 B 完成：61/61 样本，墙钟 659s ===
+    恶意检出 21/33，良性误报 9/23，unknown 16/61，调用 text=0 vision=61
+    结果：D:\work\project\传智杯\veripage\eval\experiments\results\B.jsonl
+
+--- 运行组 C：node --env-file=.env eval/experiments/run-group.mjs --group C --max-text 300 --max-vision 100 --max-tokens 6000 ---
+(node:17164) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 C（C 完整 orchestrator） 样本 61 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:53231（本地，无外网请求）
+[C  1/61] XX incomplete-404         risk=no_significant_risk  23.2s calls(text+1,vision+1) 累计 text=1 vision=1 tok=2187+1976
+[C  2/61] OK inject-body-alipay     risk=high                 39.5s calls(text+1,vision+1) 累计 text=2 vision=2 tok=4560+5502
+[C  3/61] OK look-12306-cncom       risk=high                 53.7s calls(text+1,vision+1) 累计 text=3 vision=3 tok=6793+10595
+[C  4/61] OK official-12306         risk=no_significant_risk  27.1s calls(text+1,vision+1) 累计 text=4 vision=4 tok=9055+13044
+[C  5/61] OK shortener-official     risk=no_significant_risk  67.6s calls(text+2,vision+1) 累计 text=6 vision=5 tok=12906+19256
+[C  6/61] OK visual-12306           risk=suspicious           60.8s calls(text+1,vision+1) 累计 text=7 vision=6 tok=15139+24671
+[C  7/61] XX incomplete-500         risk=no_significant_risk  30.8s calls(text+1,vision+1) 累计 text=8 vision=7 tok=17331+27263
+[C  8/61] OK inject-body-bank       risk=suspicious           72.1s calls(text+1,vision+1) 累计 text=9 vision=8 tok=19784+33668
+[C  9/61] OK look-abchinaa          risk=high                 37.2s calls(text+1,vision+1) 累计 text=10 vision=9 tok=22161+36919
+[C 10/61] OK official-abc           risk=no_significant_risk  47.6s calls(text+1,vision+1) 累计 text=11 vision=10 tok=24456+41202
+[C 11/61] OK sso-cdn-docs           risk=no_significant_risk  40.9s calls(text+1,vision+1) 累计 text=12 vision=11 tok=26834+44788
+[C 12/61] OK visual-alipay          risk=suspicious           38.0s calls(text+1,vision+1) 累计 text=13 vision=12 tok=29072+48650
+[C 13/61] XX incomplete-captcha     risk=no_significant_risk  34.3s calls(text+1,vision+1) 累计 text=14 vision=13 tok=31256+52174
+[C 14/61] OK inject-body-shop       risk=suspicious           57.5s calls(text+1,vision+1) 累计 text=15 vision=14 tok=33504+57457
+[C 15/61] OK look-alipay-secure     risk=high                 53.9s calls(text+1,vision+1) 累计 text=16 vision=15 tok=35899+62786
+[C 16/61] OK official-alipay        risk=no_significant_risk  36.6s calls(text+1,vision+1) 累计 text=17 vision=16 tok=38147+66394
+[C 17/61] OK sso-github-portal      risk=no_significant_risk  89.6s calls(text+2,vision+1) 累计 text=19 vision=17 tok=41936+74907
+[C 18/61] OK visual-bank-generic    risk=suspicious           37.7s calls(text+1,vision+1) 累计 text=20 vision=18 tok=44298+78769
+[C 19/61] OK incomplete-empty       risk=unknown              37.0s calls(text+1,vision+1) 累计 text=21 vision=19 tok=46422+82336
+[C 20/61] OK inject-body-taobao     risk=high                 31.4s calls(text+1,vision+1) 累计 text=22 vision=20 tok=48714+85521
+[C 21/61] OK look-ccb-sub           risk=high                 36.9s calls(text+1,vision+1) 累计 text=23 vision=21 tok=51048+89241
+[C 22/61] OK official-boc           risk=no_significant_risk  41.0s calls(text+1,vision+1) 累计 text=24 vision=22 tok=53273+93144
+[C 23/61] OK sso-google-portal      risk=no_significant_risk  104.4s calls(text+2,vision+1) 累计 text=26 vision=23 tok=57018+103149
+[C 24/61] OK visual-ccb             risk=high                 38.7s calls(text+1,vision+1) 累计 text=27 vision=24 tok=59248+106728
+[C 25/61] OK incomplete-js          risk=unknown              27.2s calls(text+1,vision+1) 累计 text=28 vision=25 tok=61360+109648
+[C 26/61] ?? inject-hidden-comment  risk=unknown              33.6s calls(text+1,vision+1) 累计 text=29 vision=26 tok=63596+112780
+[C 27/61] OK look-chsi-sub          risk=high                 53.0s calls(text+1,vision+1) 累计 text=30 vision=27 tok=65848+117836
+[C 28/61] OK official-ccb           risk=no_significant_risk  28.8s calls(text+1,vision+1) 累计 text=31 vision=28 tok=68085+120226
+[C 29/61] OK sso-qcloud-portal      risk=no_significant_risk  100.0s calls(text+2,vision+1) 累计 text=33 vision=29 tok=71898+128926
+[C 30/61] OK visual-icbc            risk=high                 43.6s calls(text+1,vision+1) 累计 text=34 vision=30 tok=74267+133136
+[C 31/61] XX inject-hidden-none     risk=no_significant_risk  37.4s calls(text+1,vision+1) 累计 text=35 vision=31 tok=76481+136814
+[C 32/61] OK look-cmb-sub           risk=high                 43.1s calls(text+1,vision+1) 累计 text=36 vision=32 tok=78774+141182
+[C 33/61] OK official-chsi          risk=no_significant_risk  35.7s calls(text+1,vision+1) 累计 text=37 vision=33 tok=81069+144629
+[C 34/61] ?? sso-qq-portal          risk=unknown              61.1s calls(text+1,vision+1) 累计 text=38 vision=34 tok=83526+151212
+[C 35/61] OK visual-jd              risk=high                 47.9s calls(text+1,vision+1) 累计 text=39 vision=35 tok=85746+155932
+[C 36/61] XX inject-hidden-size     risk=no_significant_risk  39.5s calls(text+1,vision+1) 累计 text=40 vision=36 tok=87977+159512
+[C 37/61] OK look-icbc-multilevel   risk=high                 47.5s calls(text+1,vision+1) 累计 text=41 vision=37 tok=90332+164246
+[C 38/61] OK official-cmb           risk=no_significant_risk  24.6s calls(text+1,vision+1) 累计 text=42 vision=38 tok=92621+166848
+[C 39/61] OK sso-weibo-portal       risk=no_significant_risk  86.7s calls(text+2,vision+1) 累计 text=44 vision=39 tok=96392+175779
+[C 40/61] OK visual-mail            risk=suspicious           32.4s calls(text+1,vision+1) 累计 text=45 vision=40 tok=98633+178933
+[C 41/61] OK inject-hidden-white    risk=suspicious           43.0s calls(text+1,vision+1) 累计 text=46 vision=41 tok=101016+182914
+[C 42/61] OK look-icbc-sub          risk=high                 56.5s calls(text+1,vision+1) 累计 text=47 vision=42 tok=103402+188351
+[C 43/61] OK official-icbc          risk=no_significant_risk  35.8s calls(text+1,vision+1) 累计 text=48 vision=43 tok=105690+191493
+[C 44/61] ?? wechat-scan            risk=unknown              44.9s calls(text+1,vision+1) 累计 text=49 vision=44 tok=108010+195748
+[C 45/61] ?? visual-taobao          risk=unknown              48.3s calls(text+1,vision+1) 累计 text=50 vision=45 tok=110255+200329
+[C 46/61] OK look-jd-vip            risk=high                 58.5s calls(text+1,vision+1) 累计 text=51 vision=46 tok=112515+205683
+[C 47/61] OK official-jd            risk=no_significant_risk  44.7s calls(text+1,vision+1) 累计 text=52 vision=47 tok=115000+209819
+[C 48/61] OK visual-topup           risk=high                 40.4s calls(text+1,vision+1) 累计 text=53 vision=48 tok=117266+213771
+[C 49/61] OK look-lcbc              risk=high                 39.8s calls(text+1,vision+1) 累计 text=54 vision=49 tok=119545+217263
+[C 50/61] OK official-miit          risk=no_significant_risk  24.9s calls(text+1,vision+1) 累计 text=55 vision=50 tok=121763+219838
+[C 51/61] OK visual-wechat          risk=suspicious           61.5s calls(text+1,vision+1) 累计 text=56 vision=51 tok=123976+225435
+[C 52/61] OK look-moe-mirror        risk=high                 49.5s calls(text+1,vision+1) 累计 text=57 vision=52 tok=126312+230329
+[C 53/61] OK official-moe           risk=no_significant_risk  30.8s calls(text+1,vision+1) 累计 text=58 vision=53 tok=128537+233699
+[C 54/61] OK look-punycode          risk=suspicious           57.2s calls(text+1,vision+1) 累计 text=59 vision=54 tok=130936+239189
+[C 55/61] OK official-pdd           risk=no_significant_risk  27.1s calls(text+1,vision+1) 累计 text=60 vision=55 tok=133308+242021
+[C 56/61] OK look-ta0bao            risk=high                 37.5s calls(text+1,vision+1) 累计 text=61 vision=56 tok=135732+246044
+[C 57/61] OK official-psbc          risk=no_significant_risk  59.2s calls(text+1,vision+1) 累计 text=62 vision=57 tok=137989+251693
+[C 58/61] OK look-taobao-sub        risk=high                 32.7s calls(text+1,vision+1) 累计 text=63 vision=58 tok=140312+254791
+[C 59/61] OK official-taobao        risk=no_significant_risk  33.3s calls(text+1,vision+1) 累计 text=64 vision=59 tok=142773+258254
+[C 60/61] OK look-weixin-sub        risk=high                 44.6s calls(text+1,vision+1) 累计 text=65 vision=60 tok=145247+262701
+[C 61/61] OK official-tmall         risk=no_significant_risk  33.0s calls(text+1,vision+1) 累计 text=66 vision=61 tok=147467+265896
+=== 组 C 完成：61/61 样本，墙钟 2783s ===
+    恶意检出 29/33，良性误报 0/23，unknown 6/61，调用 text=66 vision=61
+    结果：D:\work\project\传智杯\veripage\eval\experiments\results\C.jsonl
+
+--- 运行组 C-no-vision：node --env-file=.env eval/experiments/run-group.mjs --group C-no-vision --max-text 300 --max-vision 100 --max-tokens 6000 ---
+(node:28812) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 C-no-vision（C 消融·去视觉） 样本 61 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:55377（本地，无外网请求）
+[C-no-vision  1/61] XX incomplete-404         risk=no_significant_risk  24.9s calls(text+1,vision+0) 累计 text=1 vision=0 tok=1352+2387
+[C-no-vision  2/61] OK inject-body-alipay     risk=high                 34.3s calls(text+1,vision+0) 累计 text=2 vision=0 tok=2887+5557
+[C-no-vision  3/61] OK look-12306-cncom       risk=high                 52.5s calls(text+1,vision+0) 累计 text=3 vision=0 tok=4272+10502
+[C-no-vision  4/61] OK official-12306         risk=no_significant_risk  36.1s calls(text+1,vision+0) 累计 text=4 vision=0 tok=5687+13554
+[C-no-vision  5/61] OK shortener-official     risk=no_significant_risk  95.2s calls(text+2,vision+0) 累计 text=6 vision=0 tok=8696+23299
+[C-no-vision  6/61] OK visual-12306           risk=suspicious           35.0s calls(text+1,vision+0) 累计 text=7 vision=0 tok=10087+26782
+[C-no-vision  7/61] XX incomplete-500         risk=no_significant_risk  24.2s calls(text+1,vision+0) 累计 text=8 vision=0 tok=11443+29327
+[C-no-vision  8/61] OK inject-body-bank       risk=high                 31.5s calls(text+1,vision+0) 累计 text=9 vision=0 tok=13046+32867
+[C-no-vision  9/61] OK look-abchinaa          risk=high                 40.0s calls(text+1,vision+0) 累计 text=10 vision=0 tok=14578+36721
+[C-no-vision 10/61] OK official-abc           risk=no_significant_risk  19.7s calls(text+1,vision+0) 累计 text=11 vision=0 tok=16035+38513
+[C-no-vision 11/61] OK sso-cdn-docs           risk=no_significant_risk  27.9s calls(text+1,vision+0) 累计 text=12 vision=0 tok=17583+41656
+[C-no-vision 12/61] OK visual-alipay          risk=suspicious           34.4s calls(text+1,vision+0) 累计 text=13 vision=0 tok=18989+45170
+[C-no-vision 13/61] OK incomplete-captcha     risk=unknown              29.2s calls(text+1,vision+0) 累计 text=14 vision=0 tok=20335+48364
+[C-no-vision 14/61] OK inject-body-shop       risk=suspicious           33.0s calls(text+1,vision+0) 累计 text=15 vision=0 tok=21737+51944
+[C-no-vision 15/61] OK look-alipay-secure     risk=high                 52.2s calls(text+1,vision+0) 累计 text=16 vision=0 tok=23289+56973
+[C-no-vision 16/61] OK official-alipay        risk=no_significant_risk  30.4s calls(text+1,vision+0) 累计 text=17 vision=0 tok=24701+60154
+[C-no-vision 17/61] OK sso-github-portal      risk=no_significant_risk  76.1s calls(text+2,vision+0) 累计 text=19 vision=0 tok=27654+68876
+[C-no-vision 18/61] OK visual-bank-generic    risk=suspicious           28.8s calls(text+1,vision+0) 累计 text=20 vision=0 tok=29165+71696
+[C-no-vision 19/61] OK incomplete-empty       risk=unknown              25.9s calls(text+1,vision+0) 累计 text=21 vision=0 tok=30453+74429
+[C-no-vision 20/61] OK inject-body-taobao     risk=high                 41.0s calls(text+1,vision+0) 累计 text=22 vision=0 tok=31893+78701
+[C-no-vision 21/61] OK look-ccb-sub           risk=high                 29.8s calls(text+1,vision+0) 累计 text=23 vision=0 tok=33391+81958
+[C-no-vision 22/61] OK official-boc           risk=no_significant_risk  16.2s calls(text+1,vision+0) 累计 text=24 vision=0 tok=34788+83701
+[C-no-vision 23/61] OK sso-google-portal      risk=no_significant_risk  58.2s calls(text+2,vision+0) 累计 text=26 vision=0 tok=37719+90150
+[C-no-vision 24/61] OK visual-ccb             risk=high                 43.4s calls(text+1,vision+0) 累计 text=27 vision=0 tok=39116+94663
+[C-no-vision 25/61] OK incomplete-js          risk=unknown              24.3s calls(text+1,vision+0) 累计 text=28 vision=0 tok=40406+97527
+[C-no-vision 26/61] ?? inject-hidden-comment  risk=unknown              31.0s calls(text+1,vision+0) 累计 text=29 vision=0 tok=41778+101127
+[C-no-vision 27/61] OK look-chsi-sub          risk=high                 30.0s calls(text+1,vision+0) 累计 text=30 vision=0 tok=43178+104301
+[C-no-vision 28/61] OK official-ccb           risk=no_significant_risk  21.6s calls(text+1,vision+0) 累计 text=31 vision=0 tok=44588+106909
+[C-no-vision 29/61] OK sso-qcloud-portal      risk=no_significant_risk  80.4s calls(text+2,vision+0) 累计 text=33 vision=0 tok=47555+114710
+[C-no-vision 30/61] OK visual-icbc            risk=suspicious           49.3s calls(text+1,vision+0) 累计 text=34 vision=0 tok=49070+120179
+[C-no-vision 31/61] ?? inject-hidden-none     risk=unknown              26.1s calls(text+1,vision+0) 累计 text=35 vision=0 tok=50446+123025
+[C-no-vision 32/61] OK look-cmb-sub           risk=high                 28.1s calls(text+1,vision+0) 累计 text=36 vision=0 tok=51907+125864
+[C-no-vision 33/61] OK official-chsi          risk=no_significant_risk  25.8s calls(text+1,vision+0) 累计 text=37 vision=0 tok=53326+128646
+[C-no-vision 34/61] XX sso-qq-portal          risk=suspicious           40.8s calls(text+1,vision+0) 累计 text=38 vision=0 tok=54933+132981
+[C-no-vision 35/61] OK visual-jd              risk=suspicious           42.9s calls(text+1,vision+0) 累计 text=39 vision=0 tok=56315+137238
+[C-no-vision 36/61] OK inject-hidden-size     risk=suspicious           32.9s calls(text+1,vision+0) 累计 text=40 vision=0 tok=57719+140999
+[C-no-vision 37/61] OK look-icbc-multilevel   risk=high                 31.0s calls(text+1,vision+0) 累计 text=41 vision=0 tok=59232+144290
+[C-no-vision 38/61] OK official-cmb           risk=no_significant_risk  23.4s calls(text+1,vision+0) 累计 text=42 vision=0 tok=60692+146874
+[C-no-vision 39/61] OK sso-weibo-portal       risk=no_significant_risk  49.0s calls(text+2,vision+0) 累计 text=44 vision=0 tok=63647+152021
+[C-no-vision 40/61] OK visual-mail            risk=suspicious           30.0s calls(text+1,vision+0) 累计 text=45 vision=0 tok=65046+155200
+[C-no-vision 41/61] OK inject-hidden-white    risk=suspicious           61.6s calls(text+1,vision+0) 累计 text=46 vision=0 tok=66574+161200
+[C-no-vision 42/61] OK look-icbc-sub          risk=high                 29.1s calls(text+1,vision+0) 累计 text=47 vision=0 tok=68110+164273
+[C-no-vision 43/61] OK official-icbc          risk=no_significant_risk  18.3s calls(text+1,vision+0) 累计 text=48 vision=0 tok=69552+166480
+[C-no-vision 44/61] ?? wechat-scan            risk=unknown              35.5s calls(text+1,vision+0) 累计 text=49 vision=0 tok=71028+170227
+[C-no-vision 45/61] ?? visual-taobao          risk=unknown              25.3s calls(text+1,vision+0) 累计 text=50 vision=0 tok=72433+172964
+[C-no-vision 46/61] OK look-jd-vip            risk=high                 37.3s calls(text+1,vision+0) 累计 text=51 vision=0 tok=73853+177309
+[C-no-vision 47/61] OK official-jd            risk=no_significant_risk  25.4s calls(text+1,vision+0) 累计 text=52 vision=0 tok=75503+180244
+[C-no-vision 48/61] OK visual-topup           risk=suspicious           28.1s calls(text+1,vision+0) 累计 text=53 vision=0 tok=76933+183312
+[C-no-vision 49/61] OK look-lcbc              risk=high                 31.9s calls(text+1,vision+0) 累计 text=54 vision=0 tok=78366+186976
+[C-no-vision 50/61] OK official-miit          risk=no_significant_risk  18.3s calls(text+1,vision+0) 累计 text=55 vision=0 tok=79759+189282
+[C-no-vision 51/61] ?? visual-wechat          risk=unknown              37.1s calls(text+1,vision+0) 累计 text=56 vision=0 tok=81135+193407
+[C-no-vision 52/61] OK look-moe-mirror        risk=high                 43.2s calls(text+1,vision+0) 累计 text=57 vision=0 tok=82620+197689
+[C-no-vision 53/61] OK official-moe           risk=no_significant_risk  18.5s calls(text+1,vision+0) 累计 text=58 vision=0 tok=84022+199544
+[C-no-vision 54/61] OK look-punycode          risk=high                 36.0s calls(text+1,vision+0) 累计 text=59 vision=0 tok=85593+203355
+[C-no-vision 55/61] OK official-pdd           risk=no_significant_risk  36.0s calls(text+1,vision+0) 累计 text=60 vision=0 tok=87126+207210
+[C-no-vision 56/61] OK look-ta0bao            risk=high                 28.9s calls(text+1,vision+0) 累计 text=61 vision=0 tok=88700+210480
+[C-no-vision 57/61] OK official-psbc          risk=no_significant_risk  42.5s calls(text+1,vision+0) 累计 text=62 vision=0 tok=90115+214811
+[C-no-vision 58/61] OK look-taobao-sub        risk=high                 31.7s calls(text+1,vision+0) 累计 text=63 vision=0 tok=91589+218355
+[C-no-vision 59/61] OK official-taobao        risk=no_significant_risk  39.1s calls(text+1,vision+0) 累计 text=64 vision=0 tok=93223+222421
+[C-no-vision 60/61] OK look-weixin-sub        risk=high                 40.0s calls(text+1,vision+0) 累计 text=65 vision=0 tok=94863+226594
+[C-no-vision 61/61] OK official-tmall         risk=no_significant_risk  29.1s calls(text+1,vision+0) 累计 text=66 vision=0 tok=96252+229939
+=== 组 C-no-vision 完成：61/61 样本，墙钟 2180s ===
+    恶意检出 29/33，良性误报 1/23，unknown 8/61，调用 text=66 vision=0
+    结果：D:\work\project\传智杯\veripage\eval\experiments\results\C-no-vision.jsonl
+
+--- 运行组 C-no-kb：node --env-file=.env eval/experiments/run-group.mjs --group C-no-kb --max-text 300 --max-vision 100 --max-tokens 6000 ---
+(node:12932) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/work/project/%E4%BC%A0%E6%99%BA%E6%9D%AF/veripage/lib/agent/orchestrator.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\D:\work\project\传智杯\veripage\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+=== 组 C-no-kb（C 消融·去知识库） 样本 61 个，预算 text≤300 vision≤100 ===
+    fixture: http://127.0.0.1:60297（本地，无外网请求）
+[C-no-kb  1/61] XX incomplete-404         risk=no_significant_risk  27.7s calls(text+1,vision+1) 累计 text=1 vision=1 tok=2161+2827
+[C-no-kb  2/61] OK inject-body-alipay     risk=high                 36.0s calls(text+1,vision+1) 累计 text=2 vision=2 tok=4407+6610
+[C-no-kb  3/61] OK look-12306-cncom       risk=high                 55.6s calls(text+1,vision+1) 累计 text=3 vision=3 tok=6623+12663
+[C-no-kb  4/61] OK official-12306         risk=no_significant_risk  48.5s calls(text+1,vision+1) 累计 text=4 vision=4 tok=8866+17404
+[C-no-kb  5/61] OK shortener-official     risk=no_significant_risk  87.9s calls(text+2,vision+1) 累计 text=6 vision=5 tok=12633+26506
+[C-no-kb  6/61] OK visual-12306           risk=suspicious           59.8s calls(text+1,vision+1) 累计 text=7 vision=6 tok=14848+32011
+[C-no-kb  7/61] XX incomplete-500         risk=no_significant_risk  23.1s calls(text+1,vision+1) 累计 text=8 vision=7 tok=17021+34788
+[C-no-kb  8/61] OK inject-body-bank       risk=high                 47.1s calls(text+1,vision+1) 累计 text=9 vision=8 tok=19291+38930
+[C-no-kb  9/61] OK look-abchinaa          risk=high                 90.9s calls(text+2,vision+1) 累计 text=11 vision=9 tok=23021+48884
+[C-no-kb 10/61] OK official-abc           risk=no_significant_risk  53.1s calls(text+1,vision+1) 累计 text=12 vision=10 tok=25321+54269
+[C-no-kb 11/61] OK sso-cdn-docs           risk=no_significant_risk  31.7s calls(text+1,vision+1) 累计 text=13 vision=11 tok=27668+57227
+[C-no-kb 12/61] OK visual-alipay          risk=suspicious           38.0s calls(text+1,vision+1) 累计 text=14 vision=12 tok=29892+61246
+[C-no-kb 13/61] OK incomplete-captcha     risk=unknown              38.0s calls(text+1,vision+1) 累计 text=15 vision=13 tok=32076+64867
+[C-no-kb 14/61] OK inject-body-shop       risk=suspicious           42.3s calls(text+1,vision+1) 累计 text=16 vision=14 tok=34306+69132
+[C-no-kb 15/61] OK look-alipay-secure     risk=high                 41.5s calls(text+1,vision+1) 累计 text=17 vision=15 tok=36556+73526
+[C-no-kb 16/61] OK official-alipay        risk=no_significant_risk  37.1s calls(text+1,vision+1) 累计 text=18 vision=16 tok=38806+77283
+[C-no-kb 17/61] OK sso-github-portal      risk=no_significant_risk  71.5s calls(text+2,vision+1) 累计 text=20 vision=17 tok=42547+85010
+[C-no-kb 18/61] OK visual-bank-generic    risk=suspicious           32.2s calls(text+1,vision+1) 累计 text=21 vision=18 tok=44784+88255
+[C-no-kb 19/61] OK incomplete-empty       risk=unknown              27.1s calls(text+1,vision+1) 累计 text=22 vision=19 tok=46880+91111
+[C-no-kb 20/61] OK inject-body-taobao     risk=high                 39.3s calls(text+1,vision+1) 累计 text=23 vision=20 tok=49159+94960
+[C-no-kb 21/61] OK look-ccb-sub           risk=high                 36.5s calls(text+1,vision+1) 累计 text=24 vision=21 tok=51479+98711
+[C-no-kb 22/61] OK official-boc           risk=no_significant_risk  44.7s calls(text+1,vision+1) 累计 text=25 vision=22 tok=53704+102960
+[C-no-kb 23/61] OK sso-google-portal      risk=no_significant_risk  97.1s calls(text+2,vision+1) 累计 text=27 vision=23 tok=57448+112950
+[C-no-kb 24/61] OK visual-ccb             risk=high                 69.4s calls(text+1,vision+1) 累计 text=28 vision=24 tok=59665+119565
+[C-no-kb 25/61] OK incomplete-js          risk=unknown              30.1s calls(text+1,vision+1) 累计 text=29 vision=25 tok=61772+122445
+[C-no-kb 26/61] ?? inject-hidden-comment  risk=unknown              40.2s calls(text+1,vision+1) 累计 text=30 vision=26 tok=63974+126432
+[C-no-kb 27/61] OK look-chsi-sub          risk=high                 43.1s calls(text+1,vision+1) 累计 text=31 vision=27 tok=66194+130924
+[C-no-kb 28/61] OK official-ccb           risk=no_significant_risk  35.2s calls(text+1,vision+1) 累计 text=32 vision=28 tok=68423+134655
+[C-no-kb 29/61] ?? sso-qcloud-portal      risk=unknown              97.5s calls(text+2,vision+1) 累计 text=34 vision=29 tok=72188+144390
+[C-no-kb 30/61] OK visual-icbc            risk=high                 49.1s calls(text+1,vision+1) 累计 text=35 vision=30 tok=74434+149446
+[C-no-kb 31/61] ?? inject-hidden-none     risk=unknown              23.8s calls(text+1,vision+1) 累计 text=36 vision=31 tok=76623+151795
+[C-no-kb 32/61] OK look-cmb-sub           risk=high                 37.0s calls(text+1,vision+1) 累计 text=37 vision=32 tok=78900+155831
+[C-no-kb 33/61] OK official-chsi          risk=no_significant_risk  90.7s calls(text+2,vision+1) 累计 text=39 vision=33 tok=82578+164915
+[C-no-kb 34/61] XX sso-qq-portal          risk=suspicious           37.6s calls(text+1,vision+1) 累计 text=40 vision=34 tok=84879+169217
+[C-no-kb 35/61] OK visual-jd              risk=suspicious           35.4s calls(text+1,vision+1) 累计 text=41 vision=35 tok=87075+172919
+[C-no-kb 36/61] OK inject-hidden-size     risk=suspicious           59.5s calls(text+1,vision+1) 累计 text=42 vision=36 tok=89301+178681
+[C-no-kb 37/61] OK look-icbc-multilevel   risk=high                 39.3s calls(text+1,vision+1) 累计 text=43 vision=37 tok=91644+182459
+[C-no-kb 38/61] OK official-cmb           risk=no_significant_risk  43.9s calls(text+1,vision+1) 累计 text=44 vision=38 tok=93927+186408
+[C-no-kb 39/61] OK sso-weibo-portal       risk=no_significant_risk  78.5s calls(text+2,vision+1) 累计 text=46 vision=39 tok=97647+194905
+[C-no-kb 40/61] OK visual-mail            risk=suspicious           29.6s calls(text+1,vision+1) 累计 text=47 vision=40 tok=99878+198269
+[C-no-kb 41/61] OK inject-hidden-white    risk=high                 29.5s calls(text+1,vision+1) 累计 text=48 vision=41 tok=102133+201055
+[C-no-kb 42/61] OK look-icbc-sub          risk=high                 45.9s calls(text+1,vision+1) 累计 text=49 vision=42 tok=104399+205571
+[C-no-kb 43/61] OK official-icbc          risk=no_significant_risk  48.0s calls(text+1,vision+1) 累计 text=50 vision=43 tok=106671+210518
+[C-no-kb 44/61] XX wechat-scan            risk=suspicious           41.8s calls(text+1,vision+1) 累计 text=51 vision=44 tok=108973+214209
+[C-no-kb 45/61] ?? visual-taobao          risk=unknown              56.5s calls(text+1,vision+1) 累计 text=52 vision=45 tok=111191+219314
+[C-no-kb 46/61] OK look-jd-vip            risk=high                 69.9s calls(text+1,vision+1) 累计 text=53 vision=46 tok=113435+225996
+[C-no-kb 47/61] OK official-jd            risk=no_significant_risk  33.3s calls(text+1,vision+1) 累计 text=54 vision=47 tok=115811+228622
+[C-no-kb 48/61] OK visual-topup           risk=high                 35.0s calls(text+1,vision+1) 累计 text=55 vision=48 tok=118062+232058
+[C-no-kb 49/61] OK look-lcbc              risk=high                 49.7s calls(text+1,vision+1) 累计 text=56 vision=49 tok=120313+236806
+[C-no-kb 50/61] OK official-miit          risk=no_significant_risk  42.3s calls(text+1,vision+1) 累计 text=57 vision=50 tok=122544+240998
+[C-no-kb 51/61] OK visual-wechat          risk=suspicious           44.4s calls(text+1,vision+1) 累计 text=58 vision=51 tok=124744+244814
+[C-no-kb 52/61] OK look-moe-mirror        risk=high                 47.9s calls(text+1,vision+1) 累计 text=59 vision=52 tok=127058+249034
+[C-no-kb 53/61] OK official-moe           risk=no_significant_risk  45.2s calls(text+1,vision+1) 累计 text=60 vision=53 tok=129284+253625
+[C-no-kb 54/61] OK look-punycode          risk=high                 62.4s calls(text+1,vision+1) 累计 text=61 vision=54 tok=131553+259539
+[C-no-kb 55/61] OK official-pdd           risk=no_significant_risk  43.8s calls(text+1,vision+1) 累计 text=62 vision=55 tok=133789+263520
+[C-no-kb 56/61] OK look-ta0bao            risk=high                 36.5s calls(text+1,vision+1) 累计 text=63 vision=56 tok=136068+267455
+[C-no-kb 57/61] ?? official-psbc          risk=unknown              41.2s calls(text+1,vision+1) 累计 text=64 vision=57 tok=138312+271193
+[C-no-kb 58/61] OK look-taobao-sub        risk=high                 39.3s calls(text+1,vision+1) 累计 text=65 vision=58 tok=140644+275458
+[C-no-kb 59/61] OK official-taobao        risk=no_significant_risk  117.1s calls(text+2,vision+1) 累计 text=67 vision=59 tok=144442+285942
+[C-no-kb 60/61] OK look-weixin-sub        risk=high                 33.5s calls(text+1,vision+1) 累计 text=68 vision=60 tok=146784+289623
+[C-no-kb 61/61] OK official-tmall         risk=no_significant_risk  47.6s calls(text+1,vision+1) 累计 text=69 vision=61 tok=148998+294321
+=== 组 C-no-kb 完成：61/61 样本，墙钟 2957s ===
+    恶意检出 30/33，良性误报 2/23，unknown 8/61，调用 text=69 vision=61
+    结果：D:\work\project\传智杯\veripage\eval\experiments\results\C-no-kb.jsonl
+
+--- 各组退出码 ---
+A: 0
+B: 0
+C: 0
+C-no-vision: 0
+C-no-kb: 0
+报告已生成：D:\work\project\传智杯\veripage\eval\experiments\results\report.md（332 行）
+
+报告生成退出码：0
+产出目录：eval/experiments/results/
+FULL_RUN_EXIT=0

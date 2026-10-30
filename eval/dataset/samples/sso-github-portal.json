@@ -1,0 +1,10 @@
+{
+  "id": "sso-github-portal",
+  "group": "sso-github",
+  "category": "sso",
+  "url": "https://auth.devportal.example/login",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/sso-github-portal.html",
+  "hops": ["https://auth.devportal.example/oauth/start", "https://github.com/login/oauth/authorize?client_id=demo"],
+  "notes": "开发者门户经两级跳转进入 GitHub OAuth 授权页（github.com 已收录）；跳转链含第三方域但属正常 SSO 流程"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "official-psbc",
+  "group": "official-bank",
+  "category": "official",
+  "url": "https://www.psbc.com/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-psbc.html",
+  "notes": "邮政储蓄银行真域名首页仿写"
+}

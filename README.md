@@ -25,10 +25,11 @@
 | 知识检索线（品牌白名单 / 钓鱼案例 / SSO 合法解释） | ✅ main 已合并：知识证据进编排器 + 有界补证轮 + `versions.knowledge` | PR #7 / #11 |
 | 文本体检线（AIGC 识别 + 隐私脱敏） | ✅ main 已合并：`/text` 页 + `/api/text` + 本地正则脱敏 | PR #8 |
 | W3 对照实验（三组 + 两组消融 + 61 样本 fixture） | ✅ main 已合并：数据集 / 实验壳 / 报告 | PR #12 |
-| 复核治理线（会话隔离截图产物 + 结论 ↔ 证据联动工作台） | 已开发完成，PR 审核中，**未合并 main** | `fukaki/m3-workbench` · PR #6 / `fukaki/m2-artifacts` · PR #5 |
-| 部署配置与本文档 | 审核中（Vercel + Docker 双方案已备，未绑定账号） | `yan/deploy-readme` · PR #10 |
+| 复核治理线（会话隔离截图产物 + 结论 ↔ 证据联动工作台） | ✅ main 已合并：ArtifactStore + 会话隔离端点 + 双向联动工作台 | PR #5 / #6 |
+| 部署配置与本文档 | ✅ 随本 PR 合并（Vercel + Docker 双方案已备，未绑定账号） | `yan/deploy-readme` · PR #10 |
+| 实验产物隔离（`--tag` / `--dir`）与主分析 `max_tokens` 可配置 | ✅ main 已合并 | PR #13 / #14 |
 
-### 链接检测线：一次检测发生了什么（main @ 1fd7954）
+### 链接检测线：一次检测发生了什么（main @ 72240b2）
 
 1. **S0 访问边界**（`lib/guard/access.ts`）：协议白名单；域名先解析再校验 IP，拒绝私网 / 链路本地 / 云元数据地址（防 SSRF 与 DNS 重绑定）。被拒则不启动浏览器，步骤如实标记 `skipped`。
 2. **闸门① URL 静态分析**（`lib/tools/url-static.ts`）：纯规则、不联网——域名编辑距离、子域伪装拆穿（`taobao.com.xxx.cn` 的真实可注册主域是 `xxx.cn`）、punycode 同形字符、短链展开预判、黑名单比对、URL 参数 payload 痕迹。
@@ -62,6 +63,7 @@ pnpm dev               # http://localhost:3000
 | `VERIPAGE_TEXT_MODEL` | 文本 / 主分析模型（当前 `step-5-preview`） |
 | `VERIPAGE_VISION_MODEL` | 视觉模型，需支持 `image_url` 输入（当前 `step-5-preview`） |
 | `VERIPAGE_PRO_MODEL` | 预留的复杂判断模型 |
+| `VERIPAGE_ANALYZER_MAX_TOKENS` | 主分析器输出预算，默认 6000（推理模型先产 reasoning，预算太小会截断 JSON） |
 
 端点切换记录与历史实测见 [docs/model-notes.md](docs/model-notes.md)。
 

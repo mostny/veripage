@@ -1,0 +1,10 @@
+{
+  "id": "look-icbc-multilevel",
+  "group": "look-subdomain",
+  "category": "lookalike",
+  "url": "https://www.icbc.com.cn.login-secure.top/",
+  "expectRisk": "suspicious",
+  "blacklist": true,
+  "page": "pages/look-icbc-multilevel.html",
+  "notes": "多级子域伪装 + 廉价 TLD .top。黑名单已收录"
+}

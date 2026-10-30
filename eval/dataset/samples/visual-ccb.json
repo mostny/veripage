@@ -1,0 +1,9 @@
+{
+  "id": "visual-ccb",
+  "group": "visual-bank",
+  "category": "visual",
+  "url": "https://ccb-bank-cn.com/perbank",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-ccb.html",
+  "notes": "建行模板视觉仿冒（蓝色网银登录）"
+}

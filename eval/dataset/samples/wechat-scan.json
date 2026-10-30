@@ -1,0 +1,9 @@
+{
+  "id": "wechat-scan",
+  "group": "sso-wechat",
+  "category": "sso",
+  "url": "https://campaign.brand-demo.com/wechat-login",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/wechat-scan.html",
+  "notes": "品牌活动页微信扫码登录：脚本来自 res.wx.qq.com（已收录第三方），二维码说明为正常技术现象"
+}

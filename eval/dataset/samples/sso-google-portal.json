@@ -1,0 +1,10 @@
+{
+  "id": "sso-google-portal",
+  "group": "sso-google",
+  "category": "sso",
+  "url": "https://console.cloud-demo.io/login",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/sso-google-portal.html",
+  "hops": ["https://accounts.google.com/o/oauth2/auth?client_id=demo"],
+  "notes": "云控制台登录跳转 Google OAuth（accounts.google.com 已收录）"
+}

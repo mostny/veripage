@@ -1,0 +1,9 @@
+{
+  "id": "official-abc",
+  "group": "official-bank",
+  "category": "official",
+  "url": "https://www.abchina.com/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-abc.html",
+  "notes": "农业银行真域名首页仿写"
+}

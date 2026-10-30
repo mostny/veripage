@@ -1,13 +1,16 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import type { CaseSnapshot, CoverageEntry } from "@/lib/evidence/types";
-
-// ---------------------------------------------------------------------------
-// SSE 客户端（与服务端同款纪律：跨网络块缓冲，半行留待下一块）
-// ---------------------------------------------------------------------------
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import type { CaseSnapshot, EvidenceItem, Finding } from "@/lib/evidence/types";
+import { CoverageTimeline } from "./components/CoverageTimeline";
+import { EvidencePanel } from "./components/EvidencePanel";
+import { FindingList } from "./components/FindingList";
+import { ReportSummary } from "./components/ReportSummary";
+import { SaveStatus } from "./components/SaveStatus";
+import { ScreenshotViewer } from "./components/ScreenshotViewer";
+import { findFindingsForEvidence, resolveEvidenceIdsForFinding } from "./components/evidence-relations";
 
 interface StepEvent {
   type: "step";
@@ -16,41 +19,45 @@ interface StepEvent {
   detail?: string;
   reason?: string;
 }
+
 type ScanEvent =
   | StepEvent
   | { type: "started"; taskId: string }
   | { type: "report"; snapshot: CaseSnapshot }
   | { type: "interrupted" };
 
-function parseSseBlock(block: string): ScanEvent | undefined {
-  const data = block
-    .split("\n")
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).replace(/^ /, ""))
-    .join("\n");
-  if (!data) return undefined;
-  try {
-    return JSON.parse(data) as ScanEvent;
-  } catch {
-    return undefined;
-  }
-}
-
 async function* readScanStream(url: string, signal: AbortSignal): AsyncGenerator<ScanEvent> {
-  const res = await fetch("/api/scan", {
+  const response = await fetch("/api/scan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
+    credentials: "same-origin",
     signal,
   });
-  if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`检测请求失败（HTTP ${res.status}）${text.slice(0, 120)}`);
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`检测请求失败（HTTP ${response.status}）${text.slice(0, 120)}`);
   }
-  const reader = res.body.getReader();
+
+  const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
   let receivedReport = false;
+
+  const parseBlock = (block: string): ScanEvent | undefined => {
+    const data = block
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).replace(/^ /, ""))
+      .join("\n");
+    if (!data) return undefined;
+    try {
+      return JSON.parse(data) as ScanEvent;
+    } catch {
+      return undefined;
+    }
+  };
+
   try {
     for (;;) {
       const { value, done } = await reader.read();
@@ -60,16 +67,17 @@ async function* readScanStream(url: string, signal: AbortSignal): AsyncGenerator
       const blocks = normalized.split("\n\n");
       buffer = blocks.pop() ?? "";
       for (const block of blocks) {
-        const event = parseSseBlock(block);
+        const event = parseBlock(block);
         if (!event) continue;
         if (event.type === "report") receivedReport = true;
         yield event;
       }
     }
+
     buffer += decoder.decode();
     const finalBlock = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
     if (finalBlock) {
-      const event = parseSseBlock(finalBlock);
+      const event = parseBlock(finalBlock);
       if (event) {
         if (event.type === "report") receivedReport = true;
         yield event;
@@ -78,12 +86,12 @@ async function* readScanStream(url: string, signal: AbortSignal): AsyncGenerator
   } finally {
     await reader.cancel().catch(() => undefined);
   }
+
   if (!receivedReport) yield { type: "interrupted" };
 }
 
-// ---------------------------------------------------------------------------
-// 展示配置
-// ---------------------------------------------------------------------------
+type UiState = "pending" | "running" | "completed" | "partial" | "skipped" | "failed";
+type ScanStatus = "idle" | "running" | "completed" | "failed" | "interrupted";
 
 const STEP_LABELS: Array<{ key: string; label: string }> = [
   { key: "s0-guard", label: "S0 访问边界（SSRF 防护）" },
@@ -94,63 +102,20 @@ const STEP_LABELS: Array<{ key: string; label: string }> = [
   { key: "validate", label: "快照校验" },
 ];
 
-type UiState = "pending" | "running" | "completed" | "partial" | "skipped" | "failed";
-
-const STATE_ICON: Record<UiState, string> = {
-  pending: "○",
-  running: "◐",
-  completed: "●",
-  partial: "◑",
-  skipped: "◌",
-  failed: "✕",
-};
-const STATE_COLOR: Record<UiState, string> = {
-  pending: "text-neutral-600 border-neutral-800",
-  running: "text-sky-400 border-sky-500/40",
-  completed: "text-emerald-400 border-emerald-500/40",
-  partial: "text-amber-400 border-amber-500/40",
-  skipped: "text-neutral-400 border-neutral-700",
-  failed: "text-red-400 border-red-500/40",
-};
-
-const RISK_META: Record<string, { label: string; cls: string }> = {
-  high: { label: "高风险", cls: "border-red-500/50 bg-red-500/10 text-red-300" },
-  suspicious: { label: "可疑", cls: "border-amber-500/50 bg-amber-500/10 text-amber-300" },
-  no_significant_risk: { label: "暂未发现显著风险", cls: "border-emerald-500/50 bg-emerald-500/10 text-emerald-300" },
-  unknown: { label: "无法判断", cls: "border-neutral-600 bg-neutral-800/60 text-neutral-300" },
-};
-
-const KIND_META: Record<string, { label: string; cls: string }> = {
-  observed_fact: { label: "观察事实", cls: "bg-sky-500/15 text-sky-300" },
-  inference: { label: "风险推断", cls: "bg-amber-500/15 text-amber-300" },
-  reference: { label: "引用资料", cls: "bg-violet-500/15 text-violet-300" },
-};
-
-const SUFF_LABEL: Record<string, string> = {
-  sufficient: "充分",
-  partial: "部分充分",
-  insufficient: "不足",
-};
-const COV_LABEL: Record<CoverageEntry["state"], string> = {
-  completed: "完成",
-  partial: "部分完成",
-  skipped: "跳过",
-  failed: "失败",
-};
-
-// ---------------------------------------------------------------------------
-// 检测过程页主体
-// ---------------------------------------------------------------------------
+function interruptedMessage(): string {
+  return "检测连接已结束，但没有收到完整报告。可重试本次核验；若多次中断，请稍后再试。";
+}
 
 function ScanClient() {
   const params = useSearchParams();
   const targetUrl = params.get("url") ?? "";
-
   const [steps, setSteps] = useState<Record<string, { state: UiState; detail?: string; reason?: string }>>({});
   const [snapshot, setSnapshot] = useState<CaseSnapshot | null>(null);
   const [fatal, setFatal] = useState("");
-  const [status, setStatus] = useState<"idle" | "running" | "completed" | "failed" | "interrupted">("idle");
+  const [status, setStatus] = useState<ScanStatus>("idle");
   const [taskId, setTaskId] = useState("");
+  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const generationRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -159,56 +124,60 @@ function ScanClient() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
     const generation = ++generationRef.current;
+
     setSteps({});
     setSnapshot(null);
     setFatal("");
     setTaskId("");
+    setSelectedFindingId(null);
+    setSelectedEvidenceId(null);
     setStatus("running");
-    let terminal: "running" | "completed" | "failed" | "interrupted" = "running";
+    let terminal: Exclude<ScanStatus, "idle"> = "running";
+
     try {
-      for await (const ev of readScanStream(url, abortController.signal)) {
+      for await (const event of readScanStream(url, abortController.signal)) {
         if (generation !== generationRef.current) return;
-        if (ev.type === "started") {
-          setTaskId(ev.taskId);
-        } else if (ev.type === "interrupted") {
+
+        if (event.type === "started") {
+          setTaskId(event.taskId);
+          continue;
+        }
+        if (event.type === "interrupted") {
           if (terminal === "running") {
             terminal = "interrupted";
-            setFatal("检测连接已结束，但没有收到完整报告。请重试；若持续发生，请联系维护者。");
+            setFatal(interruptedMessage());
             setStatus("interrupted");
           }
-        } else if (ev.type === "step") {
-          setSteps((prev) => {
-            const next = { ...prev };
-            // 前一个 running 收尾：本事件之前的 running 步骤视为已结束（保持最后已知状态）
-            for (const k of Object.keys(next)) {
-              if (next[k].state === "running") next[k] = { ...next[k], state: "pending" };
-            }
-            next[ev.step] = { state: ev.state, detail: ev.detail, reason: ev.reason };
-            return next;
-          });
-          if (ev.step === "validate" && ev.state === "failed") {
+          continue;
+        }
+        if (event.type === "step") {
+          setSteps((previous) => ({
+            ...previous,
+            [event.step]: { state: event.state, detail: event.detail, reason: event.reason },
+          }));
+          if (event.step === "validate" && event.state === "failed") {
             terminal = "failed";
-            setFatal(`检测未完成：${ev.reason ?? "服务端未能生成有效报告"}`);
+            setFatal(`检测未完成：${event.reason ?? "服务端未能生成有效报告"}`);
             setStatus("failed");
           }
-        } else if (ev.type === "report") {
-          terminal = "completed";
-          setSnapshot(ev.snapshot);
-          setStatus("completed");
-          // The report is the terminal contract; do not let a subsequent transport
-          // close/error overwrite a completed result.
-          break;
+          continue;
         }
+
+        terminal = "completed";
+        setSnapshot(event.snapshot);
+        setStatus("completed");
+        // A report is terminal; later connection noise must not turn success into failure.
+        break;
       }
-    } catch (err) {
+    } catch (error) {
       if (abortController.signal.aborted || generation !== generationRef.current) return;
       terminal = "failed";
-      setFatal(err instanceof Error ? err.message : String(err));
+      setFatal(error instanceof Error ? error.message : "检测请求失败");
       setStatus("failed");
     } finally {
       if (generation === generationRef.current && terminal === "running") {
         terminal = "interrupted";
-        setFatal("检测连接已结束，但没有收到完整报告。请重试；若持续发生，请联系维护者。");
+        setFatal(interruptedMessage());
         setStatus("interrupted");
       }
       if (abortControllerRef.current === abortController) abortControllerRef.current = null;
@@ -224,14 +193,40 @@ function ScanClient() {
     };
   }, [targetUrl, run]);
 
-  // 推导每个固定步骤的展示状态：收到事件用事件状态；否则第一个未完成步骤=running
+  const scrollToItem = useCallback((prefix: "finding" | "evidence", id: string) => {
+    const targetId = `${prefix}-${encodeURIComponent(id)}`;
+    window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "center",
+      });
+    });
+  }, []);
+
+  const selectFinding = useCallback((finding: Finding) => {
+    setSelectedFindingId(finding.id);
+    const matchingIds = snapshot
+      ? resolveEvidenceIdsForFinding(finding.id, snapshot.originalAssessment.findings, snapshot.evidence)
+      : [];
+    const firstEvidenceId = matchingIds[0];
+    setSelectedEvidenceId(firstEvidenceId ?? null);
+    if (firstEvidenceId) scrollToItem("evidence", firstEvidenceId);
+  }, [scrollToItem, snapshot]);
+
+  const selectEvidence = useCallback((item: EvidenceItem) => {
+    setSelectedEvidenceId(item.id);
+    if (!snapshot) return;
+    const related = findFindingsForEvidence(item.id, snapshot.originalAssessment.findings, snapshot.evidence);
+    setSelectedFindingId(related[0]?.id ?? null);
+  }, [snapshot]);
+
   const uiStates: Record<string, UiState> = {};
   let runningAssigned = false;
   for (const { key } of STEP_LABELS) {
-    const got = steps[key];
-    if (got) {
-      uiStates[key] = got.state;
-    } else if (!runningAssigned && status === "running" && !snapshot && !fatal) {
+    const current = steps[key];
+    if (current) {
+      uiStates[key] = current.state;
+    } else if (!runningAssigned && status === "running") {
       uiStates[key] = "running";
       runningAssigned = true;
     } else {
@@ -240,196 +235,125 @@ function ScanClient() {
   }
 
   const assessment = snapshot?.originalAssessment;
-  const riskMeta = assessment ? RISK_META[assessment.risk] : undefined;
+  const linkedFindings = snapshot && selectedEvidenceId
+    ? findFindingsForEvidence(selectedEvidenceId, assessment?.findings ?? [], snapshot.evidence)
+    : [];
 
   return (
-    <main className="min-h-screen bg-neutral-950 px-4 py-8 text-neutral-100">
-      <div className="mx-auto w-full max-w-4xl">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <main className="min-h-screen bg-[#07111d] px-3 py-5 text-slate-100 sm:px-5 sm:py-8">
+      <div className="mx-auto w-full max-w-[1480px]">
+        <header className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 sm:px-5">
           <div className="min-w-0">
-            <Link href="/" className="text-sm text-neutral-500 transition hover:text-neutral-300">
+            <Link href="/" className="text-xs font-medium text-emerald-200/80 transition hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300">
               ← 网鉴 VeriPage
             </Link>
-            <h1 className="mt-1 truncate font-mono text-sm text-neutral-300 sm:text-base" title={targetUrl}>
-              {targetUrl || "（缺少 url 参数）"}
+            <h1 className="mt-1 break-all font-mono text-xs leading-5 text-slate-300 sm:text-sm" title={targetUrl}>
+              {targetUrl || "缺少待核验链接"}
             </h1>
           </div>
-          <button
-            onClick={() => targetUrl && run(targetUrl)}
-            disabled={!targetUrl || status === "running"}
-            className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:opacity-40"
-          >
-            重新检测
-          </button>
-        </div>
+          <div className="flex items-center gap-3">
+            {status === "completed" && (
+              <span className="rounded-full border border-emerald-300/20 bg-emerald-300/5 px-3 py-1 text-xs text-emerald-100/80">检测完成</span>
+            )}
+            <button
+              type="button"
+              onClick={() => targetUrl && void run(targetUrl)}
+              disabled={!targetUrl || status === "running"}
+              className="rounded-xl border border-white/15 bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-slate-200 transition hover:border-emerald-200/35 hover:bg-emerald-200/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {status === "running" ? "核验中…" : "重新检测"}
+            </button>
+          </div>
+        </header>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr]">
-          {/* 左：步骤时间线 */}
-          <section aria-label="检测步骤" className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">检测步骤</h2>
-            <ol className="space-y-1">
-              {STEP_LABELS.map(({ key, label }) => {
-                const ui = uiStates[key];
-                const info = steps[key];
-                return (
-                  <li key={key} className={`rounded-lg border px-3 py-2 ${STATE_COLOR[ui]}`}>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={ui === "running" ? "animate-pulse" : ""}>{STATE_ICON[ui]}</span>
-                      <span className="text-neutral-200">{label}</span>
-                    </div>
-                    {(info?.detail || info?.reason) && (
-                      <p className="mt-1 pl-6 text-xs leading-relaxed text-neutral-500">
-                        {info.reason ? `原因：${info.reason}` : info.detail}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
+        {!targetUrl && (
+          <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-8 text-center">
+            <h2 className="text-lg font-semibold">先输入一个待核验链接</h2>
+            <p className="mt-2 text-sm text-slate-400">返回首页粘贴链接；待测页面不会在你的当前浏览器中打开。</p>
           </section>
+        )}
 
-          {/* 右：报告 / 状态 */}
-          <section aria-label="检测报告">
-            {fatal && (
-              <div className="rounded-xl border border-red-500/50 bg-red-500/10 p-4 text-sm text-red-300">
-                {fatal}
-                <p className="mt-2 text-xs text-red-400/70">可点击「重新检测」重试；若持续失败请检查服务端日志。</p>
-              </div>
+        {status === "running" && !snapshot && (
+          <div role="status" className="mb-4 flex items-center gap-3 rounded-2xl border border-sky-200/15 bg-sky-200/[0.04] px-4 py-3 text-sm text-sky-100/90">
+            <span aria-hidden="true" className="motion-safe:animate-spin">◌</span>
+            <span>隔离取证与证据核验正在进行。未执行的步骤会明确标出。</span>
+          </div>
+        )}
+
+        {fatal && (
+          <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200/20 bg-rose-200/[0.05] px-4 py-3 text-sm text-rose-100">
+            <p>{fatal}</p>
+            {targetUrl && (
+              <button type="button" onClick={() => void run(targetUrl)} className="rounded-lg border border-rose-100/20 px-3 py-1.5 text-xs font-medium hover:bg-rose-100/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200">
+                重试核验
+              </button>
             )}
+          </div>
+        )}
 
-            {!targetUrl && !snapshot && !fatal && (
-              <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-8 text-center text-sm text-neutral-500">
-                请返回首页并输入需要核验的链接。
+        {snapshot && assessment && (
+          <>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[250px_minmax(0,1.15fr)_minmax(360px,0.95fr)] xl:grid-rows-[auto_auto] xl:items-start">
+              <div className="xl:col-start-3 xl:row-start-1">
+                <ReportSummary assessment={assessment} coverage={snapshot.coverage} />
               </div>
-            )}
 
-            {status === "running" && !snapshot && !fatal && (
-              <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-8 text-center text-sm text-neutral-500">
-                <span className="mb-2 inline-block animate-pulse text-2xl">◐</span>
-                <p>正在核验……机器沙箱正在替你访问页面并采集证据（通常 15~40 秒）</p>
+              <div className="xl:col-start-3 xl:row-start-2">
+                <FindingList
+                  findings={assessment.findings}
+                  selectedFindingId={selectedFindingId}
+                  onSelectFinding={selectFinding}
+                  evidenceCountForFinding={(finding) => resolveEvidenceIdsForFinding(finding.id, assessment.findings, snapshot.evidence).length}
+                />
               </div>
-            )}
 
-            {snapshot && assessment && riskMeta && (
-              <div className="space-y-5">
-                {/* 三维报告之：风险判断 + 证据充分程度 */}
-                <div className={`rounded-xl border p-5 ${riskMeta.cls}`}>
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-2xl font-bold">{riskMeta.label}</span>
-                    <span className="text-xs opacity-70">
-                      证据充分程度：{SUFF_LABEL[assessment.evidenceSufficiency] ?? assessment.evidenceSufficiency}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm leading-relaxed text-neutral-200">{assessment.summary}</p>
-                </div>
-
-                {/* 处置建议 */}
-                <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">处置建议</h3>
-                  <p className="text-sm text-neutral-200">{assessment.recommendedAction}</p>
-                  {assessment.gaps.length > 0 && (
-                    <p className="mt-2 text-xs text-neutral-500">证据缺口：{assessment.gaps.join("；")}</p>
-                  )}
-                </div>
-
-                {/* findings */}
-                <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-                  <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                    结论与依据（{assessment.findings.length} 条）
-                  </h3>
-                  {assessment.findings.length === 0 && (
-                    <p className="text-sm text-neutral-500">无（兜底结论或无显著发现）</p>
-                  )}
-                  <ul className="space-y-3">
-                    {assessment.findings.map((f) => {
-                      const kind = KIND_META[f.kind] ?? KIND_META.inference;
-                      return (
-                        <li key={f.id} className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-3">
-                          <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                            <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${kind.cls}`}>{kind.label}</span>
-                            <span className="font-mono text-[11px] text-neutral-600">{f.id}</span>
-                          </div>
-                          <p className="text-sm leading-relaxed text-neutral-200">{f.statement}</p>
-                          {f.evidenceIds.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {f.evidenceIds.map((id) => (
-                                <span key={id} className="rounded border border-neutral-700 px-1.5 py-0.5 font-mono text-[10px] text-neutral-400">
-                                  {id}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {f.alternativeExplanations.length > 0 && (
-                            <p className="mt-2 text-xs text-neutral-500">
-                              替代解释：{f.alternativeExplanations.join("；")}
-                            </p>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-
-                {/* unknowns */}
-                {assessment.unknowns.length > 0 && (
-                  <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">未知事项（不硬猜）</h3>
-                    <ul className="list-inside list-disc space-y-1 text-sm text-neutral-300">
-                      {assessment.unknowns.map((u, i) => (
-                        <li key={i}>{u}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* coverage + evidence 折叠 */}
-                <details className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                    技术细节：检测覆盖与证据清单（{snapshot.evidence.length} 项）
-                  </summary>
-                  <table className="mt-3 w-full text-left text-xs">
-                    <thead className="text-neutral-500">
-                      <tr>
-                        <th className="pb-1 pr-3">步骤</th>
-                        <th className="pb-1 pr-3">状态</th>
-                        <th className="pb-1">原因</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-neutral-300">
-                      {snapshot.coverage.map((c, i) => (
-                        <tr key={i} className="border-t border-neutral-800/60">
-                          <td className="py-1 pr-3 font-mono">{c.step}</td>
-                          <td className="py-1 pr-3">{COV_LABEL[c.state]}</td>
-                          <td className="py-1 text-neutral-500">{c.reason ?? "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <ul className="mt-4 space-y-2">
-                    {snapshot.evidence.map((e) => (
-                      <li key={e.id} className="rounded border border-neutral-800 bg-neutral-950/60 p-2 text-xs">
-                        <span className="font-mono text-neutral-400">{e.id}</span>
-                        <span className="ml-2 text-neutral-600">{e.type}</span>
-                        <p className="mt-1 line-clamp-2 text-neutral-500">{e.excerpt ?? e.locator ?? ""}</p>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="mt-3 text-[11px] text-neutral-600">
-                    版本：model={snapshot.versions.model} · prompt={snapshot.versions.prompt} · policy={snapshot.versions.policy}
-                  </p>
-                </details>
-
-                <p className="text-center text-[11px] text-neutral-600">
-                  本次任务：{taskId || "（报告未附任务标识）"} · {status === "completed" ? "检测完成" : ""}
-                </p>
-
-                <p className="text-center text-[11px] text-neutral-600">
-                  结论由 AI 基于证据生成，是辅助判断；「未检出风险」不等于保证安全。
-                </p>
+              <div className="xl:col-start-2 xl:row-start-1">
+                <ScreenshotViewer
+                  taskId={taskId}
+                  evidence={snapshot.evidence}
+                  selectedEvidenceId={selectedEvidenceId}
+                  onSelectEvidence={(id) => {
+                    const item = snapshot.evidence.find((entry) => entry.id === id);
+                    if (item) selectEvidence(item);
+                  }}
+                />
               </div>
-            )}
-          </section>
-        </div>
+
+              <div className="xl:col-start-2 xl:row-start-2">
+                <EvidencePanel
+                  evidence={snapshot.evidence}
+                  selectedEvidenceId={selectedEvidenceId}
+                  linkedFindings={linkedFindings}
+                  selectedFindingId={selectedFindingId}
+                  onSelectEvidence={selectEvidence}
+                  onSelectFinding={selectFinding}
+                />
+              </div>
+
+              <div className="xl:col-start-1 xl:row-span-2 xl:row-start-1">
+                <CoverageTimeline coverage={snapshot.coverage} />
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.72fr)]">
+              <SaveStatus />
+              <div className="flex flex-col justify-center gap-1 px-2 text-center text-[11px] leading-5 text-slate-600 lg:text-right">
+                <span>原始风险判断与证据快照 · model={snapshot.versions.model} · prompt={snapshot.versions.prompt}</span>
+                <span>AI 辅助核验；“暂未发现显著风险”不构成安全保证。</span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {snapshot && !assessment && (
+          <div role="alert" className="rounded-2xl border border-amber-200/20 bg-amber-200/[0.04] p-5 text-sm text-amber-100">
+            收到的报告缺少有效判断结构。请重试；本次不会将不完整结果展示为结论。
+          </div>
+        )}
+
+        {snapshot && !assessment?.findings.length && assessment && (
+          <p className="sr-only" aria-live="polite">报告没有可展示的具体结论，请结合风险判断、覆盖和证据缺口阅读。</p>
+        )}
       </div>
     </main>
   );
@@ -437,13 +361,7 @@ function ScanClient() {
 
 export default function ScanPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="flex min-h-screen items-center justify-center bg-neutral-950 text-sm text-neutral-500">
-          正在载入检测页……
-        </main>
-      }
-    >
+    <Suspense fallback={<main className="grid min-h-screen place-items-center bg-[#07111d] text-sm text-slate-400">正在载入核验工作台…</main>}>
       <ScanClient />
     </Suspense>
   );

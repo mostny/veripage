@@ -1,0 +1,9 @@
+{
+  "id": "look-cmb-sub",
+  "group": "look-subdomain",
+  "category": "lookalike",
+  "url": "https://cmbchina.com.verify-acc.cn/",
+  "expectRisk": "suspicious",
+  "page": "pages/look-cmb-sub.html",
+  "notes": "子域伪装招行域名（真实主域 verify-acc.cn）"
+}
