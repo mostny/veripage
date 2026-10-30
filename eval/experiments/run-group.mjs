@@ -2,7 +2,7 @@
  * W3 对照实验 · 单组运行器
  *
  * 用法：
- *   node --env-file=.env eval/experiments/run-group.mjs --group C [--limit N] [--out NAME]
+ *   node --env-file=.env eval/experiments/run-group.mjs --group C [--limit N] [--dir 子目录] [--out NAME]
  *       [--max-text 300] [--max-vision 100]
  *
  * 五个组：
@@ -36,20 +36,20 @@ import { createLocalFetcher } from "./local-fetcher.mjs";
 import { classify, findingSupport, latencyStats, summarizeByCategory, summarizeByGroupField, summarizeRecords } from "./metrics.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const RESULTS_DIR = path.join(HERE, "results");
 
 // ---------------------------------------------------------------------------
 // 参数
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { group: null, limit: null, out: null, maxText: DEFAULT_BUDGET.text, maxVision: DEFAULT_BUDGET.vision, maxTokens: null };
+  const args = { group: null, limit: null, out: null, dir: null, maxText: DEFAULT_BUDGET.text, maxVision: DEFAULT_BUDGET.vision, maxTokens: null };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i].replace(/^--/, "");
     const value = argv[i + 1];
     if (key === "group") args.group = value;
     else if (key === "limit") args.limit = Number(value);
     else if (key === "out") args.out = value;
+    else if (key === "dir") args.dir = value;
     else if (key === "max-text") args.maxText = Number(value);
     else if (key === "max-vision") args.maxVision = Number(value);
     else if (key === "max-tokens") args.maxTokens = Number(value);
@@ -61,9 +61,17 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 if (!args.group || !GROUPS[args.group]) {
-  console.error(`用法：node --env-file=.env eval/experiments/run-group.mjs --group <${Object.keys(GROUPS).join("|")}> [--limit N]`);
+  console.error(`用法：node --env-file=.env eval/experiments/run-group.mjs --group <${Object.keys(GROUPS).join("|")}> [--limit N] [--dir 子目录]`);
   process.exit(2);
 }
+// --dir：把本组产物写到 results/<子目录>/ 下。试跑必须带它，
+// 否则默认写 results/<组>.jsonl，会覆盖已提交的全量正式产物。
+// 只接受 results/ 之内的相对子目录名，拒绝绝对路径与 ..
+if (args.dir && (path.isAbsolute(args.dir) || args.dir.split(/[\\/]/).includes(".."))) {
+  console.error("--dir 只接受 results/ 内的相对子目录（如 --dir trial-xxx），拒绝绝对路径与 ..");
+  process.exit(2);
+}
+const RESULTS_DIR = args.dir ? path.join(HERE, "results", args.dir) : path.join(HERE, "results");
 const outName = args.out ?? args.group;
 const withScreenshot = args.group !== "C-no-vision";
 const withKnowledge = args.group !== "C-no-kb";
