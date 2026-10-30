@@ -43,8 +43,11 @@ const check = (name: string, ok: boolean, detail = "") => {
 assertModelConfig();
 
 // --- 用例 1：chat 非流式文本 ---
+// 说明：step-5-preview 是推理模型，会先花掉一部分 token 产 reasoning_content。
+// 64 token 实测偶发被推理吃光后截断（finish=length、content="1+"），
+// 因此这里与其余用例统一给足预算，让断言考核指令遵循而非截断。
 try {
-  const opts: ChatOptions = { maxTokens: 64 };
+  const opts: ChatOptions = { maxTokens: 512 };
   const r = await chat([{ role: "user", content: "用一句话回答：1+1等于几？" }], opts);
   console.log(`[chat] content=${JSON.stringify(r.content)} finish=${r.finishReason ?? "-"} usage=${JSON.stringify(r.usage ?? null)} toolCalls=${r.toolCalls.length}`);
   check("content 非空", r.content.trim().length > 0);
@@ -61,7 +64,7 @@ try {
   let finishReason: string | undefined;
   for await (const ev of chatStream(
     [{ role: "user", content: "从1数到5" }],
-    { maxTokens: 128 },
+    { maxTokens: 512 },
   )) {
     if (ev.type === "delta") {
       deltaCount += 1;
