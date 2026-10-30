@@ -1187,6 +1187,8 @@ export async function runScan(
         evidenceIds = new Set(evidence.map((e) => e.id));
         const needsRepair = parsed.unsupportedFindingCount > 0 || parsed.unsupportedRisk;
         if (needsRepair) pendingUnsupported = parsed;
+        // 重建完整 user 消息：模型必须看到含补证证据摘录的更新版证据清单，才能绑定引用
+        messages[1] = { role: "user", content: buildAnalyzerUserMessage(analyzerInput) };
         messages.push({
           role: "user",
           content:
