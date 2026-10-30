@@ -1,0 +1,10 @@
+{
+  "id": "look-taobao-sub",
+  "group": "look-subdomain",
+  "category": "lookalike",
+  "url": "https://taobao.com.verify-acc.cn/login",
+  "expectRisk": "suspicious",
+  "blacklist": true,
+  "page": "pages/look-taobao-sub.html",
+  "notes": "子域伪装（taobao.com.verify-acc.cn，真实主域 verify-acc.cn）。黑名单已收录"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "look-icbc-sub",
+  "group": "look-stealth",
+  "category": "lookalike",
+  "url": "https://icbc.com.verify-acc.cn/",
+  "expectRisk": "suspicious",
+  "page": "pages/look-icbc-sub.html",
+  "notes": "子域伪装变体：品牌标签 icbc.com 不在闸门①官方域列表（官方是 icbc.com.cn），静态规则零命中——只能靠内容+知识库发现"
+}

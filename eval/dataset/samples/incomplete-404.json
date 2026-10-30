@@ -1,0 +1,9 @@
+{
+  "id": "incomplete-404",
+  "group": "incomplete-404",
+  "category": "incomplete",
+  "url": "https://docs.portal-demo.cn/missing-page",
+  "expectRisk": "unknown",
+  "page": "pages/incomplete-404.html",
+  "notes": "404 页面：内容极少，无法核验任何身份声明"
+}

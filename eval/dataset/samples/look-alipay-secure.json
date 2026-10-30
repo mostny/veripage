@@ -1,0 +1,9 @@
+{
+  "id": "look-alipay-secure",
+  "group": "look-stealth",
+  "category": "lookalike",
+  "url": "https://alipay-secure.xyz/",
+  "expectRisk": "suspicious",
+  "page": "pages/look-alipay-secure.html",
+  "notes": "品牌+安全词域名 + 廉价 TLD：闸门①仅 cheap-tld 弱信号（weight1），域名规则几乎不可用"
+}

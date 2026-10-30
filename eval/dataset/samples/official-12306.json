@@ -1,0 +1,9 @@
+{
+  "id": "official-12306",
+  "group": "official-portal",
+  "category": "official",
+  "url": "https://www.12306.cn/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-12306.html",
+  "notes": "12306 真域名首页仿写：车票查询表单无密码框（表单≠凭据索取）"
+}

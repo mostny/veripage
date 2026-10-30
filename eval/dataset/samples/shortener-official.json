@@ -1,0 +1,10 @@
+{
+  "id": "shortener-official",
+  "group": "sso-shortener",
+  "category": "sso",
+  "url": "https://t.cn/abc123Xy",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/shortener-official.html",
+  "hops": ["https://www.taobao.com/"],
+  "notes": "短链（t.cn，闸门①命中 weight3）最终展开到淘宝官网：合法解释样本，考规则基线对短链的过度告警"
+}

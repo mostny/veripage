@@ -1,0 +1,21 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>校园信息门户 - 统一身份认证登录</title>
+<style>body{margin:0;font-family:"Microsoft YaHei",Arial,sans-serif;background:#eef4ec;color:#333}
+header{background:#2e7d4f;color:#fff;padding:14px 40px;display:flex;align-items:center;gap:20px}
+.logo{font-size:22px;font-weight:700}
+.card{margin:36px auto;width:420px;background:#fff;border-radius:10px;padding:30px;box-shadow:0 2px 10px #0001}
+.card h2{margin:0 0 6px;font-size:20px;color:#2e7d4f}
+.card p{margin:0 0 18px;font-size:13px;color:#888}
+label{display:block;font-size:13px;color:#555;margin:12px 0 6px}
+input{width:100%;height:40px;border:1px solid #ccd;border-radius:6px;padding:0 10px;font-size:14px;box-sizing:border-box}
+button{width:100%;height:42px;margin-top:18px;background:#2e7d4f;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer}
+.alt{margin-top:16px;font-size:13px;color:#666;text-align:center}
+footer{padding:20px;text-align:center;color:#999;font-size:12px}</style></head>
+<body><header><span class="logo">校园信息门户</span><span>统一身份认证</span></header>
+<div class="card"><h2>统一身份认证登录</h2><p>请输入校园网账号，或使用 QQ 账号快捷登录</p>
+<form action="https://graph.qq.com/connect" method="post">
+<label>校园网账号</label><input placeholder="学号/工号">
+<label>密码</label><input type="password" placeholder="请输入密码">
+<label>验证码</label><input placeholder="四位验证码">
+<button type="submit">登 录</button></form>
+<div class="alt">也可使用：QQ 登录 · 微信登录 · 短信登录</div></div>
+<footer>© 校园信息服务中心 · 本页面由学校信息中心维护</footer></body></html>

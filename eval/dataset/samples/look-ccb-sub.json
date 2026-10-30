@@ -1,0 +1,9 @@
+{
+  "id": "look-ccb-sub",
+  "group": "look-subdomain",
+  "category": "lookalike",
+  "url": "https://ccb.com.secure-login.icu/",
+  "expectRisk": "suspicious",
+  "page": "pages/look-ccb-sub.html",
+  "notes": "子域伪装 + 廉价 TLD .icu（真实主域 secure-login.icu）"
+}

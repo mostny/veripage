@@ -32,7 +32,11 @@ import {
   buildAnalyzerUserMessage,
   visionAnalysisPrompt,
   type AnalyzerEvidenceInput,
+  type KnowledgeEvidenceLine,
 } from "../prompts/analyzer.ts";
+import { kbLookupDomain, type KbLookupResult } from "../tools/kb-lookup.ts";
+import { searchRelatedCases, type RagSearchResult } from "../tools/rag-search.ts";
+import { KNOWLEDGE_VERSION, type BrandLookup, type ThirdPartyLookup } from "../knowledge/index.ts";
 import { validateSnapshot } from "../evidence/validate.ts";
 import {
   EVIDENCE_SUFFICIENCIES,
@@ -98,6 +102,10 @@ export interface ScanServices {
     metadata: ArtifactMetadata,
     signal?: AbortSignal,
   ) => Promise<StoredArtifact>;
+  /** 知识库结构化查询缝（默认 lib/tools/kb-lookup.ts 真函数）：离线冒烟与消融实验注入桩 */
+  kbLookup: typeof kbLookupDomain;
+  /** 案例检索缝（默认 lib/tools/rag-search.ts 真函数）：空库/桩注入用 */
+  ragSearch: typeof searchRelatedCases;
 }
 
 export interface RunScanOptions {
@@ -114,7 +122,40 @@ const defaultScanServices: ScanServices = {
   chat,
   saveArtifact: (taskId, token, bytes, metadata, signal) =>
     artifactStore.save(taskId, token, bytes, metadata, signal),
+  kbLookup: kbLookupDomain,
+  ragSearch: searchRelatedCases,
 };
+
+// ---------------------------------------------------------------------------
+// 知识库核验状态（M4：身份关系与合法解释，只读调用 lib/knowledge）
+// ---------------------------------------------------------------------------
+
+/** 一次第三方目标域核验记录 */
+interface ThirdPartyCheck {
+  domain: string;
+  result: ThirdPartyLookup;
+}
+
+/** 一次扫描的知识库核验状态：初始核验在 buildEvidence 前完成，补证轮可增补 */
+interface KnowledgeState {
+  /** 知识库版本（进 versions.knowledge，注入桩时随桩报告） */
+  knowledgeVersion: string;
+  /** 主域品牌白名单核验（总是执行：已收录/未收录都是事实证据） */
+  brand: BrandLookup;
+  /** 已核验的第三方目标域（初始=表单提交目标+第三方脚本域；补证轮增补跳转链新域） */
+  thirdPartyChecks: ThirdPartyCheck[];
+  /** 相似案例检索结果；无页面文本可用时为 undefined（检索未做过） */
+  caseSearch?: RagSearchResult;
+}
+
+/**
+ * 知识证据草稿：id/摘要在证据池与 analyzer user 消息间共用一份措辞，
+ * 保证「证据清单列出的 id」与「快照 evidence[].id」一一对应。
+ */
+interface KnowledgeEvidenceDraft extends KnowledgeEvidenceLine {
+  source: string;
+  locator: string;
+}
 
 // ---------------------------------------------------------------------------
 // 证据上下文：evidence 数组与 analyzer 消息的唯一事实来源
@@ -145,6 +186,8 @@ interface ScanContext {
   domCapturedAt?: string;
   /** 截图证据（base64 只在这里存活，不进快照） */
   screenshot?: { capturedAt: string; width: number; height: number; artifactId: string };
+  /** 知识库核验状态（初始核验 + 可选补证），由 runScan 填充 */
+  knowledge?: KnowledgeState;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +220,185 @@ function safeRegistrableDomain(rawUrl: string): string {
   } catch {
     return "(无法解析)";
   }
+}
+
+// ---------------------------------------------------------------------------
+// 知识库核验（离线只读：kb-lookup / rag-search，措辞遵守「未收录≠未授权」纪律）
+// ---------------------------------------------------------------------------
+
+/** 补证触发的知识核验类关键词（gaps/unknowns 中出现才考虑补证） */
+const KB_GAP_KEYWORDS = /品牌|授权|白名单|收录|知识库/;
+const CASE_GAP_KEYWORDS = /案例|手法|相似|知识库/;
+
+/** 域名是否不属于当前页面的可注册主域（表单提交目标/脚本域的「第三方」判定） */
+function isThirdPartyHost(host: string, registrableDomain: string): boolean {
+  const h = host.trim().toLowerCase();
+  if (!h) return false;
+  return h !== registrableDomain && getRegistrableDomain(h) !== registrableDomain;
+}
+
+/** 从表单提交目标与第三方脚本域收集初始需核验的第三方域（去重、稳定顺序） */
+function collectExternalTargetDomains(ctx: ScanContext): string[] {
+  const domains = new Set<string>();
+  for (const form of ctx.forms) {
+    if (!form.action) continue;
+    try {
+      const host = new URL(form.action, ctx.displayUrl).hostname.toLowerCase();
+      if (isThirdPartyHost(host, ctx.registrableDomain)) domains.add(host);
+    } catch {
+      // 相对路径/非法 action 提交到当前页，不作第三方域处理
+    }
+  }
+  for (const raw of ctx.externalScriptDomains) {
+    if (isThirdPartyHost(raw, ctx.registrableDomain)) domains.add(raw.trim().toLowerCase());
+  }
+  return [...domains];
+}
+
+/** 跳转链上的主机名（补证轮的「新域」候选；初始核验不覆盖它们） */
+function collectRedirectHosts(ctx: ScanContext): string[] {
+  if (!ctx.redirectChainCaptured) return [];
+  const hosts = new Set<string>();
+  for (const url of ctx.redirectChain) {
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      if (isThirdPartyHost(host, ctx.registrableDomain)) hosts.add(host);
+    } catch {
+      // 不可解析的跳转项忽略
+    }
+  }
+  return [...hosts];
+}
+
+/** 知识库版本来源：真实库用 KNOWLEDGE_VERSION，注入桩时随桩结果报告 */
+function knowledgeVersionOf(kb: KnowledgeState): string {
+  return kb.knowledgeVersion || KNOWLEDGE_VERSION;
+}
+
+/** 初始知识核验：主域品牌归属（总是）+ 第三方目标域收录（有目标域才查）+ 相似案例（有文本才查） */
+function buildInitialKnowledgeState(ctx: ScanContext, services: ScanServices): KnowledgeState {
+  const mainLookup = services.kbLookup(ctx.registrableDomain);
+  const thirdPartyChecks: ThirdPartyCheck[] = collectExternalTargetDomains(ctx).map((domain) => ({
+    domain,
+    result: services.kbLookup(domain).thirdParty,
+  }));
+  const searchText = [ctx.pageTitle, ctx.pageText, ctx.registrableDomain]
+    .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    .join("\n");
+  const caseSearch = searchText.length > 0 ? services.ragSearch(searchText) : undefined;
+  return {
+    knowledgeVersion: mainLookup.knowledgeVersion || KNOWLEDGE_VERSION,
+    brand: mainLookup.brand,
+    thirdPartyChecks,
+    caseSearch,
+  };
+}
+
+/**
+ * 知识证据措辞（单一来源）：证据池 excerpt 与 analyzer 消息共用同一字符串。
+ * 纪律：只陈述收录/检索事实——「未收录」措辞绝不出现「未授权/冒用/无风险」，
+ * 知识库未命中不产生任何「无风险」证据。
+ */
+function brandEvidenceSummary(domain: string, brand: BrandLookup, version: string): string {
+  if (brand.hit) {
+    return `主域归属核验：域名 ${domain} ${brand.note}（知识库版本 ${version}）。域名归属已核验，可支持页面身份声明的核验。`;
+  }
+  return `主域归属核验：域名 ${domain} 未收录于官方域白名单（知识库版本 ${version}）。这只说明本库资料未覆盖该域，不构成任何风险或安全判断；域名归属需结合页面证据进一步核验。`;
+}
+
+function thirdPartyEvidenceSummary(checks: ThirdPartyCheck[], version: string): string {
+  const lines = checks.map(({ domain, result }) =>
+    result.hit && result.entry
+      ? `${domain}：已收录授权登录/公共服务「${result.entry.name}」（${result.entry.kind}，匹配 ${result.matchedOn}）——指向该域的表单提交/脚本可能属正常技术现象`
+      : `${domain}：未在本库收录——收录状态不代表该域可信与否，需结合页面行为与其他证据判断`,
+  );
+  return `第三方目标域收录核验（知识库版本 ${version}）：\n${lines.join("\n")}`;
+}
+
+function caseEvidenceSummary(result: RagSearchResult, version: string): string {
+  const lines = result.matches.map(
+    (m) =>
+      `[${m.case.id}] ${m.case.title}｜相似度 ${(m.score * 100).toFixed(0)}%｜命中特征：${m.matchedIndicators.join("、")}｜手法：${m.case.pattern}`,
+  );
+  return `相似历史钓鱼案例检索（知识库版本 ${version}，基于页面标题/正文/主域）：\n${lines.join("\n")}\n相似案例仅说明手法常见，不证明当前页面恶意。`;
+}
+
+/** 单个域的知识库状态描述（补证轮用）：品牌归属 + 第三方收录两条事实 */
+function describeDomainKbStatus(domain: string, result: KbLookupResult): string[] {
+  return [
+    result.brand.hit && result.brand.entry
+      ? `域名 ${domain} 命中品牌官方域白名单（${result.brand.note}）——归属已核验`
+      : `域名 ${domain} 未收录于官方域白名单——归属未知，需结合页面证据判断`,
+    result.thirdParty.hit && result.thirdParty.entry
+      ? `第三方服务：已收录授权登录/公共服务「${result.thirdParty.entry.name}」（${result.thirdParty.entry.kind}）——指向该域可能属正常技术现象`
+      : `第三方服务：未在本库收录——收录状态不代表该域可信与否，需结合页面行为与其他证据判断`,
+  ];
+}
+
+/**
+ * 有界补证：按首次分析输出的 gaps/unknowns 选择 kb-lookup / rag-search 补充证据。
+ * 触发条件（缺一不可）：
+ *   1) gaps/unknowns 出现 品牌/授权/白名单/收录/案例/手法/相似/知识库 类字样；
+ *   2) 确实有新域可查（跳转链/表单/脚本里尚未核验的域）或案例检索尚未做过。
+ * 没有可补的新证据时返回空数组，不为此消耗第二次主分析调用。
+ */
+function buildKnowledgeSupplement(
+  ctx: ScanContext,
+  kb: KnowledgeState,
+  services: ScanServices,
+  assessment: Assessment,
+): KnowledgeEvidenceDraft[] {
+  const gapText = [...assessment.gaps, ...assessment.unknowns].join("；");
+  const wantKb = KB_GAP_KEYWORDS.test(gapText);
+  const wantCases = CASE_GAP_KEYWORDS.test(gapText);
+  if (!wantKb && !wantCases) return [];
+
+  const drafts: KnowledgeEvidenceDraft[] = [];
+  const version = knowledgeVersionOf(kb);
+  let supSeq = 0;
+
+  if (wantKb) {
+    const checked = new Set<string>([ctx.registrableDomain, ...kb.thirdPartyChecks.map((c) => c.domain)]);
+    const newDomains = [...new Set([...collectRedirectHosts(ctx), ...collectExternalTargetDomains(ctx)])].filter(
+      (d) => !checked.has(d),
+    );
+    if (newDomains.length > 0) {
+      supSeq += 1;
+      const lines: string[] = [`补证轮·域名归属与收录核验（知识库版本 ${version}）：`];
+      for (const domain of newDomains) {
+        const result = services.kbLookup(domain);
+        kb.thirdPartyChecks.push({ domain, result: result.thirdParty });
+        lines.push(...describeDomainKbStatus(domain, result));
+      }
+      drafts.push({
+        id: `ev-knowledge-sup-${supSeq}`,
+        source: `knowledge:kb-lookup 补证（版本 ${version}）`,
+        locator: newDomains.join(", "),
+        summary: lines.join("\n"),
+      });
+    }
+  }
+
+  if (wantCases && !kb.caseSearch) {
+    const searchText = [ctx.pageTitle, ctx.pageText, ctx.registrableDomain]
+      .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      .join("\n");
+    if (searchText.length > 0) {
+      const result = services.ragSearch(searchText);
+      kb.caseSearch = result;
+      if (result.matches.length > 0) {
+        supSeq += 1;
+        drafts.push({
+          id: `ev-knowledge-sup-${supSeq}`,
+          source: `knowledge:rag-search 补证（版本 ${version}）`,
+          locator: "pageTitle+document.body+registrableDomain",
+          summary: caseEvidenceSummary(result, version),
+        });
+      }
+    }
+  }
+
+  return drafts;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,6 +566,46 @@ function buildEvidence(ctx: ScanContext): {
     });
   }
 
+  // 知识证据（外部引用级）：主域品牌归属总是记录；第三方目标域/相似案例有对象才记录。
+  // 未收录/无命中时绝不写「无风险」类证据——未收录是未知，不是安全。
+  const knowledgeDrafts: KnowledgeEvidenceDraft[] = [];
+  if (ctx.knowledge) {
+    const kb = ctx.knowledge;
+    const version = knowledgeVersionOf(kb);
+    knowledgeDrafts.push({
+      id: "ev-knowledge-brand",
+      source: `knowledge:kb-lookup（版本 ${version}）`,
+      locator: ctx.registrableDomain,
+      summary: brandEvidenceSummary(ctx.registrableDomain, kb.brand, version),
+    });
+    if (kb.thirdPartyChecks.length > 0) {
+      knowledgeDrafts.push({
+        id: "ev-knowledge-sso",
+        source: `knowledge:kb-lookup（版本 ${version}）`,
+        locator: kb.thirdPartyChecks.map((c) => c.domain).join(", "),
+        summary: thirdPartyEvidenceSummary(kb.thirdPartyChecks, version),
+      });
+    }
+    if (kb.caseSearch && kb.caseSearch.matches.length > 0) {
+      knowledgeDrafts.push({
+        id: "ev-knowledge-cases",
+        source: `knowledge:rag-search（版本 ${kb.caseSearch.knowledgeVersion || version}）`,
+        locator: "pageTitle+document.body+registrableDomain",
+        summary: caseEvidenceSummary(kb.caseSearch, kb.caseSearch.knowledgeVersion || version),
+      });
+    }
+    for (const draft of knowledgeDrafts) {
+      evidence.push({
+        id: draft.id,
+        type: "knowledge",
+        capturedAt: now,
+        source: draft.source,
+        locator: draft.locator,
+        excerpt: draft.summary,
+      });
+    }
+  }
+
   const analyzerInput: AnalyzerEvidenceInput = {
     url: ctx.displayUrl,
     registrableDomain: ctx.registrableDomain,
@@ -359,6 +621,7 @@ function buildEvidence(ctx: ScanContext): {
     externalScriptsCaptured: ctx.externalScriptsCaptured,
     visionAnswer: ctx.visionAnswer,
     warnings: ctx.warnings,
+    knowledge: knowledgeDrafts.map(({ id, summary }) => ({ id, summary })),
   };
   return { evidence, analyzerInput };
 }
@@ -587,6 +850,7 @@ function buildSnapshot(
   coverage: CoverageEntry[],
   evidence: EvidenceItem[],
   artifactIds: string[],
+  knowledgeVersion: string,
 ): CaseSnapshot {
   return {
     id: randomUUID(),
@@ -600,7 +864,7 @@ function buildSnapshot(
       model: process.env.VERIPAGE_TEXT_MODEL ?? "agnes-2.5-flash",
       prompt: PROMPT_VERSION,
       policy: "1.0",
-      knowledge: "none-v1",
+      knowledge: knowledgeVersion,
     },
     originalAssessment: assessment,
     coverage,
@@ -724,6 +988,7 @@ export async function runScan(
         coverage,
         evidence,
         [],
+        KNOWLEDGE_VERSION,
       ),
       emitStep,
     );
@@ -883,8 +1148,12 @@ export async function runScan(
       : undefined,
   };
 
+  // ---- 知识库初始核验（离线只读）：主域归属 / 第三方目标域 / 相似案例 --------
+  const knowledge = buildInitialKnowledgeState(ctx, services);
+  ctx.knowledge = knowledge;
+
   const { evidence, analyzerInput } = buildEvidence(ctx);
-  const evidenceIds = new Set(evidence.map((e) => e.id));
+  let evidenceIds = new Set(evidence.map((e) => e.id));
 
   const messages: ChatMessage[] = [
     { role: "system", content: analyzerSystemPrompt() },
@@ -894,6 +1163,9 @@ export async function runScan(
   let assessment: Assessment | null = null;
   let failure: string | undefined;
   let pendingUnsupported: AssessmentParseResult | undefined;
+  /** 首次成功解析出的评估：补证轮启动过时必须保留，补证失败也不丢第一次有效分析 */
+  let firstParsedAssessment: Assessment | undefined;
+  let supplementUsed = false;
   for (let attempt = 1; attempt <= 2 && !assessment; attempt += 1) {
     throwIfAborted();
     let content: string;
@@ -904,7 +1176,7 @@ export async function runScan(
     } catch (err) {
       throwIfAborted();
       failure = `主分析器调用失败：${errMsg(err)}`;
-      if (pendingUnsupported) {
+      if (pendingUnsupported && !firstParsedAssessment) {
         assessment = finalizeUnsupportedFindings(
           pendingUnsupported.assessment,
           pendingUnsupported.unsupportedFindingCount,
@@ -921,12 +1193,52 @@ export async function runScan(
         // 输出不可解析：在 messages 末尾追加一条纠偏 user 消息，重试一次
         messages.push({ role: "user", content: RETRY_HINT });
       } else {
-        failure = "主分析器两次输出均无法解析为合法 JSON（JSON 损坏或 risk 枚举非法）";
+        failure = supplementUsed
+          ? "知识补证轮输出无法解析为合法 JSON（保留补证前的分析结果）"
+          : "主分析器两次输出均无法解析为合法 JSON（JSON 损坏或 risk 枚举非法）";
       }
       continue;
     }
 
-    if ((parsed.unsupportedFindingCount > 0 || parsed.unsupportedRisk) && attempt === 1) {
+    if (attempt === 1 && !supplementUsed) {
+      // 有界知识补证：gaps 指向知识核验且确有新证据可补时启动，占用第二次调用额度。
+      // 若首次输出同时有无依据结论，补证与修复合并进同一次重分析。
+      const supplement = buildKnowledgeSupplement(ctx, knowledge, services, parsed.assessment);
+      if (supplement.length > 0) {
+        supplementUsed = true;
+        firstParsedAssessment = parsed.assessment;
+        const appendedAt = new Date().toISOString();
+        for (const draft of supplement) {
+          evidence.push({
+            id: draft.id,
+            type: "knowledge",
+            capturedAt: appendedAt,
+            source: draft.source,
+            locator: draft.locator,
+            excerpt: draft.summary,
+          });
+        }
+        analyzerInput.knowledge = [
+          ...(analyzerInput.knowledge ?? []),
+          ...supplement.map(({ id, summary }) => ({ id, summary })),
+        ];
+        evidenceIds = new Set(evidence.map((e) => e.id));
+        const needsRepair = parsed.unsupportedFindingCount > 0 || parsed.unsupportedRisk;
+        if (needsRepair) pendingUnsupported = parsed;
+        // 重建完整 user 消息：模型必须看到含补证证据摘录的更新版证据清单，才能绑定引用
+        messages[1] = { role: "user", content: buildAnalyzerUserMessage(analyzerInput) };
+        messages.push({
+          role: "user",
+          content:
+            `【补证轮】已按你上一次输出的 gaps/unknowns 补充知识库证据：${supplement.map((s) => s.id).join("、")}（已并入上方证据清单）。` +
+            (needsRepair ? `\n\n${FINDING_REPAIR_HINT}` : "") +
+            "\n请基于更新后的完整证据清单重新输出完整 JSON。",
+        });
+        continue;
+      }
+    }
+
+    if ((parsed.unsupportedFindingCount > 0 || parsed.unsupportedRisk) && attempt === 1 && !supplementUsed) {
       // 单次有界修复；无论此前是否遇到解析错误，总主分析调用数不超过两次。
       pendingUnsupported = parsed;
       messages.push({ role: "user", content: FINDING_REPAIR_HINT });
@@ -943,7 +1255,20 @@ export async function runScan(
     }
   }
 
-  if (!assessment && pendingUnsupported) {
+  if (!assessment && firstParsedAssessment) {
+    // 补证轮调用失败/输出不可解析：保留第一次有效分析，补证未完成如实写入 gaps
+    assessment = pendingUnsupported
+      ? finalizeUnsupportedFindings(
+          pendingUnsupported.assessment,
+          pendingUnsupported.unsupportedFindingCount,
+          pendingUnsupported.unsupportedRisk,
+        )
+      : firstParsedAssessment;
+    const reason = failure ?? "补证轮未返回可解析且有依据的完整输出";
+    assessment.gaps.push(`知识补证轮未能完成：${reason}`);
+    assessment.summary = `${assessment.summary} 补证分析未能完成，结果基于补证前证据，需要人工复核。`;
+    failure = reason;
+  } else if (!assessment && pendingUnsupported) {
     assessment = finalizeUnsupportedFindings(
       pendingUnsupported.assessment,
       pendingUnsupported.unsupportedFindingCount,
@@ -977,6 +1302,7 @@ export async function runScan(
       coverage,
       evidence,
       artifactIds,
+      knowledge.knowledgeVersion || KNOWLEDGE_VERSION,
     ),
     emitStep,
   );

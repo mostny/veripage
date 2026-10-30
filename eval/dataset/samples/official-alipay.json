@@ -1,0 +1,9 @@
+{
+  "id": "official-alipay",
+  "group": "official-portal",
+  "category": "official",
+  "url": "https://www.alipay.com/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-alipay.html",
+  "notes": "支付宝真域名首页仿写：登录为链接非表单"
+}

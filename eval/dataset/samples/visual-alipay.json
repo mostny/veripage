@@ -1,0 +1,9 @@
+{
+  "id": "visual-alipay",
+  "group": "visual-ecom",
+  "category": "visual",
+  "url": "https://alipay-pay-center.com/account",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-alipay.html",
+  "notes": "支付宝模板视觉仿冒（蓝色登录页）"
+}

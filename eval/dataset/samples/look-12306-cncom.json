@@ -1,0 +1,9 @@
+{
+  "id": "look-12306-cncom",
+  "group": "look-stealth",
+  "category": "lookalike",
+  "url": "https://12306.cn.com/",
+  "expectRisk": "suspicious",
+  "page": "pages/look-12306-cncom.html",
+  "notes": "多级后缀伪装（12306.cn.com，真实主域 cn.com）：闸门①零命中，内容自称 12306"
+}

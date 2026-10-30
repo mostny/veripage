@@ -16,9 +16,12 @@ import {
 } from "../lib/models.ts";
 import type { ChatOptions, ToolDef } from "../lib/models.ts";
 
-// 1x1 红色像素 PNG
+// 64x64 不透明纯红 PNG（RGB 色类型 2，无 alpha 通道）。
+// 历史教训：此前用 1x1 RGBA 图且 alpha=127（50% 半透明），白底合成后呈粉色，
+// step-5-preview 稳定答「粉色」导致「回复含红」断言随机失败。视觉断言必须考核
+// 识别能力，不能受图片本身的透明度歧义影响——故用不透明纯红图，断言不变。
 const RED_PIXEL_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC";
 
 const getWeatherTool: ToolDef = {
   type: "function",
@@ -43,8 +46,11 @@ const check = (name: string, ok: boolean, detail = "") => {
 assertModelConfig();
 
 // --- 用例 1：chat 非流式文本 ---
+// 说明：step-5-preview 是推理模型，会先花掉一部分 token 产 reasoning_content。
+// 64 token 实测偶发被推理吃光后截断（finish=length、content="1+"），
+// 因此这里与其余用例统一给足预算，让断言考核指令遵循而非截断。
 try {
-  const opts: ChatOptions = { maxTokens: 64 };
+  const opts: ChatOptions = { maxTokens: 512 };
   const r = await chat([{ role: "user", content: "用一句话回答：1+1等于几？" }], opts);
   console.log(`[chat] content=${JSON.stringify(r.content)} finish=${r.finishReason ?? "-"} usage=${JSON.stringify(r.usage ?? null)} toolCalls=${r.toolCalls.length}`);
   check("content 非空", r.content.trim().length > 0);
@@ -61,7 +67,7 @@ try {
   let finishReason: string | undefined;
   for await (const ev of chatStream(
     [{ role: "user", content: "从1数到5" }],
-    { maxTokens: 128 },
+    { maxTokens: 512 },
   )) {
     if (ev.type === "delta") {
       deltaCount += 1;
@@ -105,10 +111,15 @@ try {
 
 // --- 用例 4：vision 视觉输入 ---
 try {
+  // step-5-preview 是推理模型：maxTokens=64 时整个预算被 reasoning_content 吃光
+  // （实测 finish=length、content=""、reasoning_content 107 字符），视觉断言根本没机会执行。
+  // 给足预算，让「回复含红」真正考核视觉识别能力，而不是考核截断。
   const r = await visionChat("这张图是什么颜色？一个词", RED_PIXEL_BASE64, {
-    maxTokens: 64,
+    maxTokens: 512,
   });
-  console.log(`[vision] content=${JSON.stringify(r.content)} usage=${JSON.stringify(r.usage ?? null)}`);
+  console.log(
+    `[vision] content=${JSON.stringify(r.content)} finish=${r.finishReason ?? "-"} usage=${JSON.stringify(r.usage ?? null)}`,
+  );
   check("content 非空", r.content.trim().length > 0);
   check('回复含 "红"', r.content.includes("红"), JSON.stringify(r.content.slice(0, 80)));
 } catch (e) {

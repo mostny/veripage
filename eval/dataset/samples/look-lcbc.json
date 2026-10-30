@@ -1,0 +1,10 @@
+{
+  "id": "look-lcbc",
+  "group": "look-typo",
+  "category": "lookalike",
+  "url": "https://lcbc.com.cn/",
+  "expectRisk": "suspicious",
+  "blacklist": true,
+  "page": "pages/look-lcbc.html",
+  "notes": "编辑距离 1（lcbc.com.cn ↔ icbc.com.cn）。黑名单已收录"
+}

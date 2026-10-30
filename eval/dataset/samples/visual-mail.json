@@ -1,0 +1,9 @@
+{
+  "id": "visual-mail",
+  "group": "visual-other",
+  "category": "visual",
+  "url": "https://mail-verify-center.com/login",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-mail.html",
+  "notes": "企业邮箱模板视觉仿冒（通用登录页）"
+}
