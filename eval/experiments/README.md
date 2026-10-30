@@ -9,13 +9,14 @@
 cd "D:/work/project/传智杯/veripage"
 
 # 小样本试通（每类 1 个，共 6 个样本；模型组走真实 API，花小额真钱）
-node eval/experiments/run-all.mjs --limit 6
+# ⚠️ 试跑必须加 --tag <名字>：产物落 results/<名字>/，不覆盖 results/ 下已提交的全量产物
+node eval/experiments/run-all.mjs --limit 6 --tag trial-xxx
 
 # 全量（三组 + 两组消融；每组单独进程，逐样本增量落盘）
 node eval/experiments/run-all.mjs --max-tokens 6000
 
-# 单组重跑
-node --env-file=.env eval/experiments/run-group.mjs --group C --max-tokens 6000
+# 单组重跑（--dir 子目录同样用于隔离，避免覆盖正式产物）
+node --env-file=.env eval/experiments/run-group.mjs --group C --max-tokens 6000 --dir trial-single
 ```
 
 ## 文件
@@ -27,9 +28,9 @@ node --env-file=.env eval/experiments/run-group.mjs --group C --max-tokens 6000
 | `fixture-server.mjs` | 本地 127.0.0.1 HTTP fixture（`/page/:id` + `/hop/:id/:n` 真实 30x） |
 | `local-fetcher.mjs` | Playwright 直连本地 fixture，产出对齐 `PageEvidence` 的取证结果；`withScreenshot=false` 为去视觉变体 |
 | `metrics.mjs` | 检出/误报/无法判定/可判定子集/证据支持率等指标（程序校验） |
-| `run-group.mjs` | 单组运行器（增量 JSONL + 预算计数 + 实时打印） |
-| `run-all.mjs` | 一键跑五组 + 生成报告 |
-| `report.mjs` | 汇总 `results/*.jsonl` → `results/report.md` |
+| `run-group.mjs` | 单组运行器（增量 JSONL + 预算计数 + 实时打印；`--dir 子目录` 隔离产物） |
+| `run-all.mjs` | 一键跑五组 + 生成报告（`--tag 名字` 把整轮产物隔离到 `results/<名字>/`） |
+| `report.mjs` | 汇总 `results/*.jsonl` → `results/report.md`（`--dir` 指定其他结果目录） |
 
 ## 产出（`results/`）
 
