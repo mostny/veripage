@@ -1,0 +1,21 @@
+# 网鉴 VeriPage · 自托管完整版（含 Playwright 沙箱代访）
+#
+# 前置步骤：
+#   1. cp .env.example .env 并填入模型 API Key（.env 已被 .gitignore，也不会进镜像）
+#   2. docker compose up -d --build
+#   3. 打开 http://localhost:3000
+#
+# PLAYWRIGHT_BROWSERS_PATH 必须与 Dockerfile 构建期的值一致（/ms-playwright）：
+# 浏览器在镜像构建时装好，运行期直接复用，容器启动不联网下载。
+services:
+  veripage:
+    build: .
+    image: veripage:latest
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    restart: unless-stopped
