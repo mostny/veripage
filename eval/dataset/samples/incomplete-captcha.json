@@ -1,0 +1,9 @@
+{
+  "id": "incomplete-captcha",
+  "group": "incomplete-captcha",
+  "category": "incomplete",
+  "url": "https://verify.portal-demo.cn/check",
+  "expectRisk": "unknown",
+  "page": "pages/incomplete-captcha.html",
+  "notes": "验证码拦截页：只能看到「请完成验证」，无任何身份信息——考取证不完整时是否诚实说无法判定"
+}

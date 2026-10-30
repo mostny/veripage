@@ -1,0 +1,9 @@
+{
+  "id": "look-weixin-sub",
+  "group": "look-subdomain",
+  "category": "lookalike",
+  "url": "https://weixin.qq.com.verify.cn/",
+  "expectRisk": "suspicious",
+  "page": "pages/look-weixin-sub.html",
+  "notes": "子域伪装微信域名（真实主域 verify.cn）"
+}

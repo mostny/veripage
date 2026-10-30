@@ -1,0 +1,9 @@
+{
+  "id": "visual-bank-generic",
+  "group": "visual-bank",
+  "category": "visual",
+  "url": "https://bank-secure-portal.cn/login",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-bank-generic.html",
+  "notes": "通用网银模板视觉仿冒（银行卡+身份证索取）"
+}

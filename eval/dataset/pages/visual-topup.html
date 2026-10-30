@@ -1,0 +1,21 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>游戏充值中心 - Steam 官方充值</title>
+<style>body{margin:0;font-family:"Microsoft YaHei",Arial,sans-serif;background:#1b2838;color:#c7d5e0}
+header{background:#171a21;color:#fff;padding:14px 40px;display:flex;align-items:center;gap:24px}
+.logo{font-size:24px;font-weight:700;letter-spacing:2px}
+.card{margin:40px auto;width:420px;background:#16202d;border:1px solid #2a475e;border-radius:8px;padding:32px}
+.card h2{margin:0 0 6px;font-size:20px;color:#66c0f4}.card p{margin:0 0 16px;font-size:13px;color:#8f98a0}
+label{display:block;font-size:13px;color:#8f98a0;margin:12px 0 6px}
+input,select{width:100%;height:38px;background:#1b2838;border:1px solid #2a475e;border-radius:4px;color:#c7d5e0;padding:0 10px;font-size:14px;box-sizing:border-box}
+button{width:100%;height:42px;margin-top:18px;background:#5c7e10;color:#fff;border:none;border-radius:4px;font-size:15px;cursor:pointer}
+.grid{margin:18px 40px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.cell{background:#16202d;border:1px solid #2a475e;border-radius:8px;padding:16px;font-size:13px;color:#8f98a0;min-height:60px}
+footer{padding:20px;text-align:center;color:#556772;font-size:12px}</style></head>
+<body><header><span class="logo">游戏充值中心</span><span>官方合作充值</span></header>
+<div class="card"><h2>Steam 钱包充值</h2><p>选择金额并登录 Steam 账号完成充值</p>
+<form action="/steam/pay" method="post">
+<label>充值金额</label><select><option>¥ 30</option><option>¥ 60</option><option>¥ 100</option><option>¥ 300</option></select>
+<label>Steam 账号</label><input placeholder="请输入账号">
+<label>Steam 密码</label><input type="password" placeholder="请输入密码">
+<button type="submit">立即充值</button></form></div>
+<div class="grid"><div class="cell">充值到账快</div><div class="cell">支持支付宝/微信</div><div class="cell">客服 7x24 在线</div></div>
+<footer>© 游戏充值服务中心</footer></body></html>

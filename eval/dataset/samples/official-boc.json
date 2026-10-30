@@ -1,0 +1,9 @@
+{
+  "id": "official-boc",
+  "group": "official-bank",
+  "category": "official",
+  "url": "https://www.boc.cn/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-boc.html",
+  "notes": "中国银行真域名首页仿写"
+}

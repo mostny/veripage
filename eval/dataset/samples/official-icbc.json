@@ -1,0 +1,9 @@
+{
+  "id": "official-icbc",
+  "group": "official-bank",
+  "category": "official",
+  "url": "https://www.icbc.com.cn/",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/official-icbc.html",
+  "notes": "工商银行真域名首页仿写：网银入口为链接非表单，考「有登录入口≠凭据索取」"
+}

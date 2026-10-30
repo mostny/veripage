@@ -1,0 +1,9 @@
+{
+  "id": "look-abchinaa",
+  "group": "look-typo",
+  "category": "lookalike",
+  "url": "https://abchinaa.com/",
+  "expectRisk": "suspicious",
+  "page": "pages/look-abchinaa.html",
+  "notes": "编辑距离 1（abchinaa.com ↔ abchina.com）"
+}

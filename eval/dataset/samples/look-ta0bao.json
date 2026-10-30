@@ -1,0 +1,10 @@
+{
+  "id": "look-ta0bao",
+  "group": "look-typo",
+  "category": "lookalike",
+  "url": "https://ta0bao.com/login",
+  "expectRisk": "suspicious",
+  "blacklist": true,
+  "page": "pages/look-ta0bao.html",
+  "notes": "编辑距离 1 仿冒（ta0bao.com ↔ taobao.com）。黑名单已收录样本：检验 A 组「查黑名单即检出」的平凡优势"
+}

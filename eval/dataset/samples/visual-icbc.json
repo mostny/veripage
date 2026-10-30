@@ -1,0 +1,9 @@
+{
+  "id": "visual-icbc",
+  "group": "visual-bank",
+  "category": "visual",
+  "url": "https://icbc-bank-online.com/ibank",
+  "expectRisk": "suspicious",
+  "page": "pages/visual-icbc.html",
+  "notes": "工行模板视觉仿冒（银行红+行徽文字）"
+}

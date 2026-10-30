@@ -1,0 +1,10 @@
+{
+  "id": "sso-qcloud-portal",
+  "group": "sso-qq",
+  "category": "sso",
+  "url": "https://corp.docs-demo.com/login",
+  "expectRisk": "no_significant_risk",
+  "page": "pages/sso-qcloud-portal.html",
+  "hops": ["https://ui.ptlogin2.qq.com/authorize"],
+  "notes": "企业文档系统 QQ 登录：图片资源来自 qcloudimg.com（已收录 CDN）+ 跳转 ui.ptlogin2.qq.com（已收录 SSO）"
+}

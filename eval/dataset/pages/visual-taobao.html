@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>优选商城 - 用户登录</title>
+<style>body{margin:0;font-family:"Microsoft YaHei",Arial,sans-serif;background:#f5f5f5;color:#333}
+header{background:#ff6a00;color:#fff;padding:14px 40px;display:flex;align-items:center;gap:24px}
+.logo{font-size:25px;font-weight:700;letter-spacing:2px}
+.card{margin:36px auto;width:400px;background:#fff;border-radius:10px;padding:30px;box-shadow:0 2px 10px #0001}
+.card h2{margin:0 0 6px;font-size:20px;color:#ff6a00}.card p{margin:0 0 16px;font-size:13px;color:#999}
+label{display:block;font-size:13px;color:#555;margin:12px 0 6px}
+input{width:100%;height:40px;border:1px solid #ccd;border-radius:6px;padding:0 10px;font-size:14px;box-sizing:border-box}
+button{width:100%;height:42px;margin-top:18px;background:#ff6a00;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer}
+.grid{margin:18px 40px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.cell{background:#fff;border-radius:8px;padding:14px;font-size:13px;color:#666;min-height:64px;box-shadow:0 1px 3px #0001}
+footer{padding:20px;text-align:center;color:#999;font-size:12px}</style></head>
+<body><header><span class="logo">优选商城</span><span>好物精选 · 天天低价</span></header>
+<div class="card"><h2>用户登录</h2><p>优选商城会员登录，享受专属折扣</p>
+<form action="/member/login" method="post">
+<label>账号 / 手机号</label><input placeholder="请输入账号">
+<label>密码</label><input type="password" placeholder="请输入密码">
+<button type="submit">立即登录</button></form></div>
+<div class="grid"><div class="cell">今日特价</div><div class="cell">品牌秒杀</div><div class="cell">优惠券中心</div><div class="cell">订单查询</div></div>
+<footer>© 优选商城 版权所有</footer></body></html>
