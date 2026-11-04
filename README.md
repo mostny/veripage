@@ -134,7 +134,12 @@ flowchart TD
 
 W3 三组对照 + 两组消融（A 黑名单+规则 vs B 裸多模态模型 vs C 完整 orchestrator；消融：去视觉 / 去知识库；61 个本地 fixture 样本，不访问外部真实站点）：
 
-- [W3 三组对照实验报告](eval/experiments/results/report.md) —— 已在 main（PR #12）。核心数字：恶意检出 A 30.3% / B 63.6% / **C 87.9%**，良性误报 A 17.4% / B 39.1% / **C 0%**，结论证据支持率 **100%（366/366，程序校验）**；黑名单未命中样本上 A 仅 14.8% vs C 85.2%。复跑方式（走真实模型端点，消耗 Key 额度，全量约 45 分钟）：`node eval/experiments/run-all.mjs`；**试跑必须加 `--tag <名字>`**（产物落 `results/<名字>/`，不碰 `results/` 下已提交的全量产物）。
+- [W3 三组对照实验报告](eval/experiments/results/report.md) —— 已在 main（PR #12）。核心数字：恶意检出 A 30.3% / B 63.6% / **C 87.9%**，良性误报 A 17.4% / B 39.1% / **C 0%**，结论证据支持率 **100%（366/366，程序校验）**；黑名单未命中样本上 A 仅 14.8% vs C 85.2%。
+- 复现命令（走真实模型端点，消耗 Key 额度，全量五组墙钟合计约 143 分钟，见报告第 7 节）：
+  - 全量（写 `results/` 正式目录，目标产物已存在时需显式 `--overwrite`）：`node eval/experiments/run-all.mjs --max-tokens 6000`
+  - 试跑（必须加 `--tag`，产物落 `results/<tag>/`，不碰 `results/` 下已提交的全量产物）：`node eval/experiments/run-all.mjs --limit 6 --tag trial-xxx --max-tokens 6000`
+  - 单组重跑（例）：`node --env-file=.env eval/experiments/run-group.mjs --group C --max-tokens 6000`
+  - 预算口径：正式五组统一 `--max-tokens 6000`（A 组不调模型，参数对其无效）。**不带该参数时 B 组默认 2000、C 组走编排器默认 6000，复现不了原统一条件**——历史事实与当前默认的区分见报告 0.5 节（审计 F14）。
 
 ## 团队与 Git 历史
 
