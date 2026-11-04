@@ -17,21 +17,13 @@
 
 import { chromium } from "playwright";
 import { getRegistrableDomain } from "../../lib/tools/url-static.ts";
+import { mergeNavigationChain } from "./chain-utils.mjs";
 
 const VIEWPORT = { width: 1280, height: 800 };
 const MAX_TEXT_CHARS = 3_000;
 
 function truncate(text, max) {
   return text.length > max ? { text: text.slice(0, max), truncated: true } : { text, truncated: false };
-}
-
-function dedupeAdjacent(urls) {
-  const out = [];
-  for (const u of urls) {
-    const prev = out[out.length - 1];
-    if (!prev || prev.replace(/\/+$/, "") !== u.replace(/\/+$/, "")) out.push(u);
-  }
-  return out;
 }
 
 function requestChain(req) {
@@ -172,7 +164,8 @@ export function createLocalFetcher({ baseUrl, sampleByUrl, withScreenshot = true
           };
         });
         const capturedAt = new Date().toISOString();
-        // 公开落地地址：第三方域比对与相对 form action 换算都以它为准（本地地址不当主域）
+        // 公开落地地址（按样本声明的最终页）：第三方域比对与相对 form action 换算以它为准
+        //（本地地址不当主域）。finalUrl 字段则取实际观察链末尾，见第 4 步（审计 F15）。
         const publicFinalUrl = publicChain[publicChain.length - 1];
         const t = truncate(dom.bodyText, MAX_TEXT_CHARS);
         evidence.push({
@@ -239,19 +232,20 @@ export function createLocalFetcher({ baseUrl, sampleByUrl, withScreenshot = true
       }
 
       // 4) 跳转链：服务端 30x（redirectedFrom 反推）+ 客户端跳转，映射回公开 URL
-      let chain = response ? requestChain(response.request()) : [];
-      for (const u of navigatedUrls) {
-        if (chain.length === 0 || !dedupeAdjacent([chain[chain.length - 1], u]).length) chain.push(u);
-      }
-      chain = dedupeAdjacent(chain);
-      if (chain.length === 0) chain = [localChain[0]];
-      const publicObservedChain = chain.map(mapLocalToPublic);
+      // （审计 F15：旧条件 !dedupeAdjacent([last,u]).length 对非空链恒 false，客户端跳转被丢弃；
+      //  现与 lib/tools/fetch-page.ts 的合并方式一致——新导航与链尾不同即保留）
+      const chain = mergeNavigationChain(response ? requestChain(response.request()) : [], navigatedUrls);
+      const observedChain = chain.length > 0 ? chain : [localChain[0]];
+      const publicObservedChain = observedChain.map(mapLocalToPublic);
       if (publicObservedChain[0] !== sample.url) publicObservedChain.unshift(sample.url);
+      // finalUrl 取实际观察链末尾（审计 F15：不再取声明链 publicChain 的末尾——
+      // 声明链是样本 JSON 的期望，实际观察链才是 fetcher 亲眼看到的落点）
+      const finalUrl = publicObservedChain[publicObservedChain.length - 1];
 
       return {
         blocked: false,
         startUrl: sample.url,
-        finalUrl: publicChain[publicChain.length - 1],
+        finalUrl,
         redirectChain: publicObservedChain,
         evidence,
         warnings,
