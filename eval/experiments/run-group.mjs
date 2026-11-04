@@ -3,7 +3,7 @@
  *
  * 用法：
  *   node --env-file=.env eval/experiments/run-group.mjs --group C [--limit N] [--dir 子目录] [--out NAME]
- *       [--max-text 300] [--max-vision 100]
+ *       [--max-text 300] [--max-vision 100] [--max-tokens 6000] [--overwrite]
  *
  * 五个组：
  *   A          黑名单 + 闸门①静态规则（不调模型、不访问页面）
@@ -16,9 +16,14 @@
  * - 结果逐样本增量落盘 results/<out>.jsonl（崩了也能从断点续看）；
  * - 单组预算：默认 300 文本 + 100 视觉调用，超限即停该组并如实记录；
  * - 实时打印模型调用计数；所有判定阈值来自 config.mjs（跑前写死）。
+ *
+ * 产物安全（审计 2026-10-30 F02）：所有参数先验证再执行；试跑（--dir）输出严格位于
+ * results/ 内的隔离子目录；--out 只接受纯文件名；已有目标文件默认拒绝覆盖（需显式 --overwrite）；
+ * --limit/--max-text/--max-vision/--max-tokens 非有限正整数时在打开/清空任何文件之前报错退出。
+ * 有样本 error 时退出码 4（审计 F12），预算停止退出码 3。
  */
 
-import { appendFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,6 +37,7 @@ import { PROMPT_VERSION } from "../../lib/prompts/analyzer.ts";
 import { BARE_MODEL_PROMPT, CATEGORY_EXPECT, DEFAULT_BUDGET, GROUP_A_RULE, GROUPS } from "./config.mjs";
 import { loadDataset } from "./dataset.mjs";
 import { startFixtureServer } from "./fixture-server.mjs";
+import { parseFinitePositiveInt, parseFlagArgs, resolveIsolatedDir, runnerExitCode, validateIsolationSegment, validateOutName } from "./guards.mjs";
 import { createLocalFetcher } from "./local-fetcher.mjs";
 import { classify, findingSupport, latencyStats, summarizeByCategory, summarizeByGroupField, summarizeRecords } from "./metrics.mjs";
 
@@ -42,42 +48,68 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { group: null, limit: null, out: null, dir: null, maxText: DEFAULT_BUDGET.text, maxVision: DEFAULT_BUDGET.vision, maxTokens: null };
-  for (let i = 0; i < argv.length; i += 1) {
-    const key = argv[i].replace(/^--/, "");
-    const value = argv[i + 1];
-    if (key === "group") args.group = value;
-    else if (key === "limit") args.limit = Number(value);
-    else if (key === "out") args.out = value;
-    else if (key === "dir") args.dir = value;
-    else if (key === "max-text") args.maxText = Number(value);
-    else if (key === "max-vision") args.maxVision = Number(value);
-    else if (key === "max-tokens") args.maxTokens = Number(value);
-    else continue;
-    i += 1;
-  }
-  return args;
+  const parsed = parseFlagArgs(argv, {
+    valueKeys: ["group", "limit", "out", "dir", "max-text", "max-vision", "max-tokens"],
+    booleanKeys: ["overwrite"],
+    flagsLabel: "run-group",
+  });
+  return {
+    group: parsed.args.group ?? null,
+    limit: parsed.args.limit ?? null,
+    out: parsed.args.out ?? null,
+    dir: parsed.args.dir ?? null,
+    maxText: parsed.args["max-text"] ?? DEFAULT_BUDGET.text,
+    maxVision: parsed.args["max-vision"] ?? DEFAULT_BUDGET.vision,
+    maxTokens: parsed.args["max-tokens"] ?? null,
+    overwrite: parsed.args.overwrite === true,
+    error: parsed.error,
+  };
 }
 
 const args = parseArgs(process.argv.slice(2));
+const usage = `用法：node --env-file=.env eval/experiments/run-group.mjs --group <${Object.keys(GROUPS).join("|")}> [--limit N] [--dir 子目录] [--out 文件名] [--max-text 300] [--max-vision 100] [--max-tokens 6000] [--overwrite]`;
+if (args.error) {
+  console.error(args.error);
+  console.error(usage);
+  process.exit(2);
+}
 if (!args.group || !GROUPS[args.group]) {
-  console.error(`用法：node --env-file=.env eval/experiments/run-group.mjs --group <${Object.keys(GROUPS).join("|")}> [--limit N] [--dir 子目录]`);
+  console.error(`--group 必须是五组之一：${Object.keys(GROUPS).join(" | ")}`);
+  console.error(usage);
   process.exit(2);
 }
-// --dir：把本组产物写到 results/<子目录>/ 下。试跑必须带它，
-// 否则默认写 results/<组>.jsonl，会覆盖已提交的全量正式产物。
-// 只接受 results/ 之内的相对子目录名，拒绝绝对路径与 ..
-if (args.dir && (path.isAbsolute(args.dir) || args.dir.split(/[\\/]/).includes(".."))) {
-  console.error("--dir 只接受 results/ 内的相对子目录（如 --dir trial-xxx），拒绝绝对路径与 ..");
+// 以下全部验证通过之前，不允许发生任何 mkdir/write（审计 F02：--limit oops/--max-text oops
+// 曾以 NaN 使预算比较失效并跑满全量；--tag/--dir 缺值曾静默退回正式目录）
+try {
+  if (args.limit !== null) args.limit = parseFinitePositiveInt(args.limit, "--limit");
+  args.maxText = parseFinitePositiveInt(args.maxText, "--max-text");
+  args.maxVision = parseFinitePositiveInt(args.maxVision, "--max-vision");
+  if (args.maxTokens !== null) args.maxTokens = parseFinitePositiveInt(args.maxTokens, "--max-tokens");
+  if (args.out !== null) validateOutName(args.out);
+  if (args.dir !== null) validateIsolationSegment(args.dir, "--dir");
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  console.error(usage);
   process.exit(2);
 }
-const RESULTS_DIR = args.dir ? path.join(HERE, "results", args.dir) : path.join(HERE, "results");
+// --dir：把本组产物写到 results/<子目录>/ 下。试跑必须带它。
+// 规范化后必须严格位于 results/ 内部子目录（"."、"./"、..、绝对路径、越出 results 一律拒绝——
+// "." 规范化后等于正式 results 根，曾能清空 results/C.jsonl 等正式产物，审计 F02）
+const RESULTS_ROOT = path.join(HERE, "results");
+const RESULTS_DIR = args.dir ? resolveIsolatedDir(RESULTS_ROOT, args.dir) : RESULTS_ROOT;
 const outName = args.out ?? args.group;
 const withScreenshot = args.group !== "C-no-vision";
 const withKnowledge = args.group !== "C-no-kb";
-
-mkdirSync(RESULTS_DIR, { recursive: true });
 const jsonlPath = path.join(RESULTS_DIR, `${outName}.jsonl`);
+const summaryPath = path.join(RESULTS_DIR, `${outName}.summary.json`);
+
+// 已有目标产物默认拒绝覆盖（审计 F02）：防止试跑/误操作清空正式结果；确要覆盖必须显式 --overwrite。
+// 该检查放在 mkdirSync 之前——被拒绝的调用不允许发生任何文件系统写入。
+if (!args.overwrite && (existsSync(jsonlPath) || existsSync(summaryPath))) {
+  console.error(`目标产物已存在，拒绝覆盖：${jsonlPath}（如确要覆盖请显式加 --overwrite）`);
+  process.exit(2);
+}
+mkdirSync(RESULTS_DIR, { recursive: true });
 writeFileSync(jsonlPath, ""); // 新运行覆盖旧文件；运行中逐行追加即增量落盘
 
 // ---------------------------------------------------------------------------
@@ -95,17 +127,14 @@ const fetcher = createLocalFetcher({ baseUrl: server.baseUrl, sampleByUrl, withS
 // 模型调用计数 / 预算
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// 模型调用计数 / 预算
-// ---------------------------------------------------------------------------
-
 /**
- * max_tokens 口径（如实披露）：
- * 编排器主分析调用硬编码 maxTokens=2000（lib/agent/orchestrator.ts）。
- * step-5-preview 为推理模型（先 reasoning 后 content），试跑实测 2000 预算下
- * 4/6 样本 finish=length、JSON 被截断而无法解析。按项目既有做法
- *（commit 07b09e9 / 29b0889：给足预算使判定不被截断混淆，不放宽判定），
- * 实验壳用 --max-tokens 覆盖调用预算；默认不覆盖（忠实 2000）。
+ * max_tokens 口径（如实披露，审计 2026-10-30 F14：历史事实与当前默认分开陈述）：
+ * - 历史事实：编排器主分析调用曾硬编码 maxTokens=2000（lib/agent/orchestrator.ts）。
+ *   step-5-preview 为推理模型（先 reasoning 后 content），2000 试跑（results/trial-2000budget/）
+ *   实测 C 组 9 次调用 finish=length（波及 5/6 样本）、4/6 样本最终解析失败，B 组 1 次 length。
+ * - 已提交的正式五组统一用 --max-tokens 6000 覆盖（summary 的 models.maxTokensOverride=6000）。
+ * - 当前默认：不带 --max-tokens 时，B 组仍是本文件硬编码的 2000，C 组走编排器默认 6000
+ *   （VERIPAGE_ANALYZER_MAX_TOKENS 可覆盖）。复现原统一条件必须显式 --max-tokens 6000（README/报告附录 B 已写明）。
  */
 const MAX_TOKENS_OVERRIDE = args.maxTokens;
 const withBudget = (opts) => (MAX_TOKENS_OVERRIDE ? { ...opts, maxTokens: MAX_TOKENS_OVERRIDE } : opts);
@@ -361,6 +390,7 @@ for (let i = 0; i < samples.length; i += 1) {
     else result = await runGroupC(sample);
   } catch (err) {
     status = "error";
+    counters.errors.push({ sampleId: sample.id, message: err instanceof Error ? err.message : String(err) });
     result = { risk: "unknown", detail: { error: err instanceof Error ? err.message : String(err) } };
   }
   const latencyMs = Date.now() - t0;
@@ -465,7 +495,7 @@ if (args.group === "A" || args.group === "B") {
     .map((r) => ({ sampleId: r.sampleId, errors: r.cDetail.validateHardErrors }));
 }
 
-writeFileSync(path.join(RESULTS_DIR, `${outName}.summary.json`), `${JSON.stringify(summary, null, 2)}\n`);
+writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
 await fetcher.close();
 await server.close();
 
@@ -475,5 +505,10 @@ console.log(
   `    恶意检出 ${overall.malicious.detected}/${overall.malicious.total}，良性误报 ${overall.benign.falsePositive}/${overall.benign.total}，` +
     `unknown ${overall.undecidableAll.count}/${overall.decided}，调用 text=${counters.text} vision=${counters.vision}`,
 );
+if (counters.errors.length > 0) {
+  console.log(`    !! 本组有 ${counters.errors.length} 个样本运行出错（status=error），退出码 4（审计 F12：错误必须决定退出码）`);
+  for (const e of counters.errors) console.log(`       - ${e.sampleId}: ${e.message}`);
+}
 console.log(`    结果：${jsonlPath}`);
-process.exit(counters.budgetStopped ? 3 : 0);
+// 审计 F12：有 error 记录必须退出非零（4）；预算停止如实退出 3；全部成功才 0
+process.exit(runnerExitCode({ errorCount: counters.errors.length, budgetStopped: counters.budgetStopped }));
