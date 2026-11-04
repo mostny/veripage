@@ -6,6 +6,7 @@
  * 覆盖：PSL 主域解析（多级后缀 / com.cn / IP 字面量 / 单标签）+ 既有规则行为不变。
  */
 import { analyzeUrlStatic, getRegistrableDomain } from "../lib/tools/url-static.ts";
+import { HIDDEN_URL_PARAM_VALUE, minimizeUrlForDisplay } from "../lib/tools/url-display.ts";
 
 let fail = 0;
 const check = (name: string, ok: boolean, extra?: string) => {
@@ -80,6 +81,40 @@ check("payload 痕迹命中", hasFinding("https://evil.com/?q=%3Cscript%3Ealert(
 check("punycode 命中同形字符", hasFinding("https://xn--e1afmkfd.xn--p1ai/", "homoglyph:punycode"));
 check("廉价 TLD 命中 cheap-tld", hasFinding("https://evil.top/", "cheap-tld"));
 check("login.example.co.uk 无命中", reportOf("https://login.example.co.uk/").findings.length === 0);
+
+// --- 静态发现 id 唯一性（审计 F11：重复 id 会破坏真实报告的 validate） -----
+for (const c of cases) {
+  const ids = reportOf(c).findings.map((f) => f.id);
+  check(`[${c}] 静态发现 id 全局唯一`, new Set(ids).size === ids.length, ids.join(","));
+}
+// jd.com ↔ qq.com：微信（weixin.qq.com）与腾讯（qq.com）折叠到同一可注册域 qq.com，
+// 历史上会生成两条同 id 的 levenshtein:qq.com；同 id 视为同一事实只保留一条。
+{
+  const jd = reportOf("https://jd.com/");
+  const qqHits = jd.findings.filter((f) => f.id === "levenshtein:qq.com");
+  check("jd.com 命中 levenshtein:qq.com", qqHits.length === 1, `实际 ${qqHits.length} 条`);
+  check(
+    "jd.com 保留的相似事实内容完整",
+    qqHits[0]?.detail.includes("qq.com") && qqHits[0]?.detail.includes("编辑距离") === true,
+    qqHits[0]?.detail,
+  );
+}
+
+// --- URL 展示最小化（审计 F01 链接线部分） --------------------------------
+{
+  const token = "AUDIT_TOKEN_X";
+  const minimized = minimizeUrlForDisplay(`https://example.com/?token=${token}&keep=1`);
+  check("凭据样参数值替换为占位", minimized === `https://example.com/?token=${HIDDEN_URL_PARAM_VALUE}&keep=1`, minimized);
+  check("最小化结果不含裸 token", !minimized.includes(token));
+  const other = minimizeUrlForDisplay("https://example.com/p?session=abcdefgh1234&x=2#frag");
+  check("session 长值也被隐藏且保留锚点", other === `https://example.com/p?session=${HIDDEN_URL_PARAM_VALUE}&x=2#frag`, other);
+  check("短值不误伤", minimizeUrlForDisplay("https://example.com/?key=1") === "https://example.com/?key=1");
+  check("无 query 原样返回", minimizeUrlForDisplay("https://example.com/path") === "https://example.com/path");
+  check("普通参数原样保留", minimizeUrlForDisplay("https://example.com/?q=%E4%B8%AD&a=b") === "https://example.com/?q=%E4%B8%AD&a=b");
+  check("幂等：对已最小化结果不再改动", minimizeUrlForDisplay(minimized) === minimized);
+  check("分片内的伪 query 也可隐藏", minimizeUrlForDisplay("https://example.com/#/callback?access_token=abcdefgh") === `https://example.com/#/callback?access_token=${HIDDEN_URL_PARAM_VALUE}`);
+  check("大写参数名命中（大小写不敏感）", !minimizeUrlForDisplay("https://example.com/?Signature=abcdefgh12").includes("abcdefgh12"));
+}
 
 console.log(fail === 0 ? "ALL-PASS" : `FAIL（${fail} 例未过）`);
 process.exit(fail === 0 ? 0 : 1);

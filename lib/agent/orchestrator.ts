@@ -25,6 +25,7 @@ import { artifactStore, MAX_ARTIFACT_BYTES, type ArtifactMetadata, type StoredAr
 import { assertPublicHttpUrl } from "../guard/access.ts";
 import { analyzeUrlStatic, getRegistrableDomain, type StaticFinding, type UrlStaticReport } from "../tools/url-static.ts";
 import { fetchPage, type FetchPageResult, type PageEvidence } from "../tools/fetch-page.ts";
+import { minimizeUrlForDisplay } from "../tools/url-display.ts";
 import { chat, visionChat, type ChatMessage } from "../models.ts";
 import {
   PROMPT_VERSION,
@@ -177,21 +178,28 @@ interface KnowledgeEvidenceDraft extends KnowledgeEvidenceLine {
 // ---------------------------------------------------------------------------
 
 interface ScanContext {
-  /** 展示用 URL（归一化后） */
+  /**
+   * 展示用 URL（归一化 + 凭据样参数已最小化，审计 F01）。
+   * 传模文本与快照/报告均使用该展示形态；原始完整 URL 在最小化发生时
+   * 另存为短期证据产物（ev-url.artifactId），取证可回查。
+   */
   displayUrl: string;
   registrableDomain: string;
   /** 闸门①静态规则命中 */
   staticFindings: StaticFinding[];
   staticScore: number;
-  /** 闸门②跳转链（起点 → 终点） */
+  /** 闸门②跳转链（起点 → 终点，原始 URL；展示出口统一最小化） */
   redirectChain: string[];
   redirectChainCaptured: boolean;
   pageTitle?: string;
   pageText?: string;
-  /** 表单硬事实，id 由编排器生成（ev-form-N），与证据 id 同源 */
+  /** 表单硬事实，id 由编排器生成（ev-form-N），与证据 id 同源（action 为原始值） */
   forms: Array<{ id: string; action: string; method: string; hasPasswordInput: boolean; inputCount: number }>;
   formsCaptured: boolean;
+  /** 第三方脚本的可注册域（展示与「是否第三方」关系判断用，审计 F08） */
   externalScriptDomains: string[];
+  /** 第三方脚本 src 的完整 hostname（知识库核验用：库按精确 hostname 收录，审计 F08） */
+  externalScriptSrcHosts: string[];
   externalScriptsCaptured: boolean;
   /** 闸门③视觉模型答复（作为 ev-vision 证据） */
   visionAnswer?: string;
@@ -201,6 +209,11 @@ interface ScanContext {
   domCapturedAt?: string;
   /** 截图证据（base64 只在这里存活，不进快照） */
   screenshot?: { capturedAt: string; width: number; height: number; artifactId: string };
+  /**
+   * 原始完整 URL 的短期证据产物引用（审计 F01）：displayUrl 发生最小化且
+   * 成功保存原始 URL 产物时填写，取证可通过 ev-url.artifactId 回查。
+   */
+  rawUrlArtifactId?: string;
   /** 知识库核验状态（初始核验 + 可选补证），由 runScan 填充 */
   knowledge?: KnowledgeState;
 }
@@ -217,6 +230,34 @@ function errMsg(err: unknown): string {
 function clip(text: string, max = EXCERPT_LIMIT): string {
   const trimmed = text.trim();
   return trimmed.length > max ? `${trimmed.slice(0, max)}…（已截断）` : trimmed;
+}
+
+/**
+ * URL 展示最小化发生时，把原始完整 URL 存为短期文本证据产物（审计 F01）：
+ * 报告/传模只出现最小化形态，取证需要时凭产物引用回查原始值。
+ * 无产物会话或保存失败时不阻断扫描，只在告警里如实记录。
+ */
+async function preserveRawUrlArtifact(
+  rawUrl: string,
+  options: RunScanOptions,
+  services: ScanServices,
+  warnings: string[],
+): Promise<string | undefined> {
+  if (!options.artifactSession) return undefined;
+  try {
+    const stored = await services.saveArtifact(
+      options.artifactSession.taskId,
+      options.artifactSession.token,
+      Buffer.from(rawUrl, "utf8"),
+      { mediaType: "text/plain" },
+      options.signal,
+    );
+    return stored.id;
+  } catch (err) {
+    options.signal?.throwIfAborted();
+    warnings.push(`URL 含凭据样参数，但原始 URL 取证副本未能保存：${errMsg(err)}`);
+    return undefined;
+  }
 }
 
 function toStringArray(raw: unknown): string[] {
@@ -252,7 +293,12 @@ function isThirdPartyHost(host: string, registrableDomain: string): boolean {
   return h !== registrableDomain && getRegistrableDomain(h) !== registrableDomain;
 }
 
-/** 从表单提交目标与第三方脚本域收集初始需核验的第三方域（去重、稳定顺序） */
+/**
+ * 从表单提交目标与第三方脚本域收集初始需核验的第三方域（去重、稳定顺序）。
+ * 知识库（kb-lookup）按精确 hostname 收录（如 cdn.jsdelivr.net），表单目标
+ * 本就取完整 hostname；脚本侧必须用 src 的完整 hostname 查询——若拿采集器
+ * 折叠出的可注册域（jsdelivr.net）去查，会得出「未在本库收录」的假阴性（审计 F08）。
+ */
 function collectExternalTargetDomains(ctx: ScanContext): string[] {
   const domains = new Set<string>();
   for (const form of ctx.forms) {
@@ -264,8 +310,8 @@ function collectExternalTargetDomains(ctx: ScanContext): string[] {
       // 相对路径/非法 action 提交到当前页，不作第三方域处理
     }
   }
-  for (const raw of ctx.externalScriptDomains) {
-    if (isThirdPartyHost(raw, ctx.registrableDomain)) domains.add(raw.trim().toLowerCase());
+  for (const host of ctx.externalScriptSrcHosts) {
+    if (isThirdPartyHost(host, ctx.registrableDomain)) domains.add(host.trim().toLowerCase());
   }
   return [...domains];
 }
@@ -434,7 +480,18 @@ function buildEvidence(ctx: ScanContext): {
   const domAt = ctx.domCapturedAt ?? now;
   const evidence: EvidenceItem[] = [];
 
-  // 用户提交的 URL：一切结论的锚点
+  /**
+   * 同一份规范化摘录（审计 F09）：正文/标题/视觉答复的摘录用同一裁剪函数、
+   * 同一长度上限产出，既进 analyzer user 消息，也进快照 excerpt——
+   * 模型据以作答的内容与留存可回看的内容逐字符一致，尾部事实可从留存复现。
+   */
+  const pageTitleExcerpt = ctx.pageTitle !== undefined ? clip(ctx.pageTitle) : undefined;
+  const pageTextExcerpt =
+    ctx.pageText !== undefined && ctx.pageText.length > 0 ? clip(ctx.pageText) : undefined;
+  const visionAnswerExcerpt = ctx.visionAnswer !== undefined ? clip(ctx.visionAnswer) : undefined;
+
+  // 用户提交的 URL：一切结论的锚点。展示形态已最小化（审计 F01）；
+  // 最小化发生时原始 URL 另存为短期证据产物，ev-url.artifactId 可回查。
   evidence.push({
     id: "ev-url",
     type: "url",
@@ -442,6 +499,7 @@ function buildEvidence(ctx: ScanContext): {
     source: "user-input",
     locator: ctx.displayUrl,
     excerpt: ctx.displayUrl,
+    ...(ctx.rawUrlArtifactId ? { artifactId: ctx.rawUrlArtifactId } : {}),
   });
 
   // 闸门①：命中项逐条成为证据；无命中也要留一条「未命中」的事实
@@ -475,8 +533,9 @@ function buildEvidence(ctx: ScanContext): {
     });
   }
 
-  // 闸门②：只有导航观察完成，跳转链才可作为证据。
-  const finalUrl = ctx.redirectChain[ctx.redirectChain.length - 1] ?? ctx.displayUrl;
+  // 闸门②：只有导航观察完成，跳转链才可作为证据。展示出口统一最小化（审计 F01）。
+  const displayRedirectChain = ctx.redirectChain.map(minimizeUrlForDisplay);
+  const finalUrl = displayRedirectChain[displayRedirectChain.length - 1] ?? ctx.displayUrl;
   if (ctx.redirectChainCaptured) {
     evidence.push({
       id: "ev-redirect",
@@ -484,41 +543,43 @@ function buildEvidence(ctx: ScanContext): {
       capturedAt: now,
       source: "playwright:redirectChain",
       locator: finalUrl,
-      excerpt: ctx.redirectChain.join(" → "),
+      excerpt: displayRedirectChain.join(" → "),
     });
   }
 
-  if (ctx.pageTitle !== undefined) {
+  if (pageTitleExcerpt !== undefined) {
     evidence.push({
       id: "ev-title",
       type: "text",
       capturedAt: domAt,
       source: "playwright:document.title",
       locator: "document.title",
-      excerpt: clip(ctx.pageTitle),
+      excerpt: pageTitleExcerpt,
     });
   }
-  if (ctx.pageText !== undefined && ctx.pageText.length > 0) {
+  if (pageTextExcerpt !== undefined) {
     evidence.push({
       id: "ev-text",
       type: "text",
       capturedAt: domAt,
       source: "playwright:document.body.innerText",
       locator: "document.body",
-      excerpt: clip(ctx.pageText),
+      excerpt: pageTextExcerpt,
     });
   }
 
   if (ctx.forms.length > 0) {
     for (const f of ctx.forms) {
+      // action 展示形态最小化（审计 F01）；原始 action 仅供关系判断，不进两个出口
+      const displayAction = f.action ? minimizeUrlForDisplay(f.action) : "";
       evidence.push({
         id: f.id,
         type: "form",
         capturedAt: domAt,
         source: "playwright:document.forms",
-        locator: `form[action=${f.action || "(当前页)"}]`,
+        locator: `form[action=${displayAction || "(当前页)"}]`,
         excerpt:
-          `action=${f.action || "(空，提交到当前页)"} method=${f.method} ` +
+          `action=${displayAction || "(空，提交到当前页)"} method=${f.method} ` +
           `密码框=${f.hasPasswordInput ? "有" : "无"} 输入项=${f.inputCount}`,
       });
     }
@@ -547,15 +608,16 @@ function buildEvidence(ctx: ScanContext): {
     });
   }
 
-  // 闸门③视觉：答复作为文本证据；截图本体只留占位与 artifactId
-  if (ctx.visionAnswer !== undefined) {
+  // 闸门③视觉：答复作为文本证据（规范化摘录，传模与留存同一份，审计 F09）；
+  // 截图本体只留占位与 artifactId
+  if (visionAnswerExcerpt !== undefined) {
     evidence.push({
       id: "ev-vision",
       type: "text",
       capturedAt: now,
       source: "vision:视觉核验模型对截图的答复",
       locator: "整页截图",
-      excerpt: clip(ctx.visionAnswer),
+      excerpt: visionAnswerExcerpt,
     });
   }
   if (ctx.screenshot) {
@@ -626,19 +688,68 @@ function buildEvidence(ctx: ScanContext): {
     registrableDomain: ctx.registrableDomain,
     staticFindings: ctx.staticFindings,
     staticScore: ctx.staticScore,
-    redirectChain: ctx.redirectChain,
+    // 展示出口统一最小化（审计 F01）；正文/标题/视觉答复传模与留存同一份规范化摘录（审计 F09）
+    redirectChain: ctx.redirectChain.map(minimizeUrlForDisplay),
     redirectChainCaptured: ctx.redirectChainCaptured,
-    pageTitle: ctx.pageTitle,
-    pageText: ctx.pageText,
-    forms: ctx.forms,
+    pageTitle: pageTitleExcerpt,
+    pageText: pageTextExcerpt,
+    forms: ctx.forms.map((f) => ({ ...f, action: f.action ? minimizeUrlForDisplay(f.action) : f.action })),
     formsCaptured: ctx.formsCaptured,
     externalScriptDomains: ctx.externalScriptDomains,
     externalScriptsCaptured: ctx.externalScriptsCaptured,
-    visionAnswer: ctx.visionAnswer,
+    visionAnswer: visionAnswerExcerpt,
     warnings: ctx.warnings,
     knowledge: knowledgeDrafts.map(({ id, summary }) => ({ id, summary })),
   };
   return { evidence, analyzerInput };
+}
+
+// ---------------------------------------------------------------------------
+// 证据池同 ID 防撞兜底（审计 F11）
+// ---------------------------------------------------------------------------
+
+/** 两条证据是否为同一内容（同一事实）：type/来源/定位器/摘录/产物引用全一致 */
+function sameEvidenceContent(a: EvidenceItem, b: EvidenceItem): boolean {
+  return (
+    a.type === b.type &&
+    a.source === b.source &&
+    (a.locator ?? "") === (b.locator ?? "") &&
+    (a.excerpt ?? "") === (b.excerpt ?? "") &&
+    (a.artifactId ?? "") === (b.artifactId ?? "")
+  );
+}
+
+/**
+ * 证据池入池兜底（审计 F11）：上游生成侧（url-static 等）已按「同 id 只保留一条」
+ * 去重，这里是编排器侧防线——
+ *   - 同 ID 且同内容 → 视为同一事实，合并保留首条；
+ *   - 同 ID 但内容不同 → 绝不静默覆盖：改名保留两条并在返回值中报警
+ *     （调用方把报警写进可见证据，validate 的唯一性校验保持通过）。
+ */
+function mergeEvidenceIdCollisions(evidence: EvidenceItem[]): {
+  evidence: EvidenceItem[];
+  conflicts: string[];
+} {
+  const out: EvidenceItem[] = [];
+  const seen = new Map<string, EvidenceItem>();
+  const conflicts: string[] = [];
+  let seq = 0;
+  for (const item of evidence) {
+    const existing = seen.get(item.id);
+    if (!existing) {
+      seen.set(item.id, item);
+      out.push(item);
+      continue;
+    }
+    if (sameEvidenceContent(existing, item)) continue; // 同一事实：合并
+    seq += 1;
+    const renamedId = `${item.id}#conflict-${seq}`;
+    conflicts.push(`${item.id} → ${renamedId}`);
+    const clone = { ...item, id: renamedId };
+    seen.set(renamedId, clone);
+    out.push(clone);
+  }
+  return { evidence: out, conflicts };
 }
 
 // ---------------------------------------------------------------------------
@@ -664,7 +775,11 @@ interface NormalizedFindings {
 }
 
 /** 模型输出 → Assessment；结构损坏或 risk 枚举非法时返回 null（调用方负责有限重试） */
-function parseAssessment(raw: string, evidenceIds: Set<string>): AssessmentParseResult | null {
+function parseAssessment(
+  raw: string,
+  evidenceIds: Set<string>,
+  knowledgeIds: Set<string>,
+): AssessmentParseResult | null {
   const text = stripJsonFences(raw);
   let json: unknown;
   try {
@@ -680,10 +795,14 @@ function parseAssessment(raw: string, evidenceIds: Set<string>): AssessmentParse
       return null;
     }
   }
-  return normalizeAssessment(json, evidenceIds);
+  return normalizeAssessment(json, evidenceIds, knowledgeIds);
 }
 
-function normalizeAssessment(raw: unknown, evidenceIds: Set<string>): AssessmentParseResult | null {
+function normalizeAssessment(
+  raw: unknown,
+  evidenceIds: Set<string>,
+  knowledgeIds: Set<string>,
+): AssessmentParseResult | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
 
@@ -697,7 +816,7 @@ function normalizeAssessment(raw: unknown, evidenceIds: Set<string>): Assessment
       : "partial";
 
   if (!Array.isArray(obj.findings)) return null;
-  const normalizedFindings = normalizeFindings(obj.findings, evidenceIds);
+  const normalizedFindings = normalizeFindings(obj.findings, evidenceIds, knowledgeIds);
   const unsupportedRisk = risk !== "unknown" && normalizedFindings.findings.length === 0;
   return {
     unsupportedFindingCount: normalizedFindings.unsupportedIds.length,
@@ -726,10 +845,16 @@ function normalizeAssessment(raw: unknown, evidenceIds: Set<string>): Assessment
  * - 空 statement 的 finding 直接丢弃；
  * - id 缺失/重复时重新编号；
  * - observed_fact / reference 必须直接引用真实证据，否则剔除；不得改标为 inference；
+ * - 来源等级纪律（审计 F10）：知识库证据是外部引用级，observed_fact 若只引用
+ *   knowledge 证据则降级为 reference（陈述仍受证据支持，只是等级归位）；
  * - inference 必须直接或经有依据的 finding 推理链到达真实证据；
  * - 无效 finding 的数量交给调用方触发一次有界修复；仍无效则丢弃并降级报告语气。
  */
-function normalizeFindings(raw: unknown, evidenceIds: Set<string>): NormalizedFindings {
+function normalizeFindings(
+  raw: unknown,
+  evidenceIds: Set<string>,
+  knowledgeIds: Set<string>,
+): NormalizedFindings {
   const list = Array.isArray(raw) ? raw : [];
   const draft: Finding[] = [];
   const usedIds = new Set<string>();
@@ -766,8 +891,13 @@ function normalizeFindings(raw: unknown, evidenceIds: Set<string>): NormalizedFi
       unsupportedIds.push(finding.id);
       continue;
     }
+    // 来源等级纪律（审计 F10）：observed_fact 只引用 knowledge 证据 → 降级为外部引用级
+    const kind: FindingKind =
+      finding.kind === "observed_fact" && refs.every((ref) => knowledgeIds.has(ref))
+        ? "reference"
+        : finding.kind;
     evidenceBacked.add(finding.id);
-    normalized.set(finding.id, { ...finding, evidenceIds: refs });
+    normalized.set(finding.id, { ...finding, kind, evidenceIds: refs });
   }
 
   // Resolve inference chains to a fixed point. Cycles with no evidence root never become supported.
@@ -965,14 +1095,21 @@ export async function runScan(
       emitStep(step, "skipped", undefined, BLOCKED_REASON);
     }
     const now = new Date().toISOString();
+    // 展示出口最小化（审计 F01）：报告与日志不回显凭据样参数值
+    const blockedDisplayUrl = minimizeUrlForDisplay(rawUrl.trim());
+    const blockedWarnings: string[] = [];
+    const rawUrlArtifactId = blockedDisplayUrl !== rawUrl.trim()
+      ? await preserveRawUrlArtifact(rawUrl.trim(), options, services, blockedWarnings)
+      : undefined;
     const evidence: EvidenceItem[] = [
       {
         id: "ev-url",
         type: "url",
         capturedAt: now,
         source: "user-input",
-        locator: rawUrl.trim(),
-        excerpt: rawUrl.trim() || "(未提供 URL)",
+        locator: blockedDisplayUrl,
+        excerpt: blockedDisplayUrl || "(未提供 URL)",
+        ...(rawUrlArtifactId ? { artifactId: rawUrlArtifactId } : {}),
       },
     ];
     const assessment: Assessment = {
@@ -981,6 +1118,7 @@ export async function runScan(
       gaps: [
         `S0 访问边界拒绝访问：${reason}`,
         "闸门①静态分析、闸门②沙箱代访、闸门③AI 取证均未执行，无任何页面证据",
+        ...blockedWarnings,
       ],
       summary: `未发起检测：${reason}`,
       findings: [
@@ -998,11 +1136,11 @@ export async function runScan(
     };
     return finalizeSnapshot(
       buildSnapshot(
-        { displayUrl: rawUrl.trim(), registrableDomain: safeRegistrableDomain(rawUrl) },
+        { displayUrl: blockedDisplayUrl, registrableDomain: safeRegistrableDomain(rawUrl) },
         assessment,
         coverage,
         evidence,
-        [],
+        rawUrlArtifactId ? [rawUrlArtifactId] : [],
         KNOWLEDGE_VERSION,
       ),
       emitStep,
@@ -1021,6 +1159,8 @@ export async function runScan(
     "completed",
     `命中 ${staticReport.findings.length} 项，静态分 ${staticReport.score}`,
   );
+  // 展示用 URL（审计 F01）：后续访问/采集仍用原始 URL，两个出口（传模/报告）用最小化形态
+  const displayUrl = minimizeUrlForDisplay(staticReport.normalizedUrl);
 
   // ---- 闸门②：沙箱代访 ----------------------------------------------------
   const page = await services.fetchPage(rawUrl, { signal: options.signal });
@@ -1077,6 +1217,25 @@ export async function runScan(
       : [];
   const externalScriptDomains =
     scriptsEvidence && scriptsEvidence.type === "externalScripts" ? scriptsEvidence.domains : [];
+  /**
+   * 知识核验用脚本 src 的完整 hostname（审计 F08）：知识库按精确 hostname 收录
+   * （cdn.jsdelivr.net），可注册域（jsdelivr.net）只用于上面 ev-scripts 的
+   * 「是否第三方域」展示与关系判断。scripts 为空的旧形态证据退回 domains
+   * （真实采集器 fetch-page 总是带完整 src 列表）。
+   */
+  const externalScriptSrcHosts = (() => {
+    const scripts = scriptsEvidence && scriptsEvidence.type === "externalScripts" ? scriptsEvidence.scripts : [];
+    const hosts = scripts.length > 0
+      ? scripts.map((s) => {
+          try {
+            return new URL(s.src).hostname.toLowerCase();
+          } catch {
+            return "";
+          }
+        })
+      : externalScriptDomains.map((d) => d.trim().toLowerCase());
+    return [...new Set(hosts.filter((h) => h !== ""))];
+  })();
 
   // ---- 闸门③视觉：截图交给视觉模型，失败不阻断 ----------------------------
   let visionAnswer: string | undefined;
@@ -1137,8 +1296,13 @@ export async function runScan(
   }
 
   // ---- 闸门③主分析：先建 evidence，再用同一份数据生成 user 消息 ------------
+  // URL 发生展示最小化时保存原始完整 URL 的取证副本（审计 F01）
+  const rawUrlArtifactId =
+    displayUrl !== staticReport.normalizedUrl
+      ? await preserveRawUrlArtifact(staticReport.normalizedUrl, options, services, warnings)
+      : undefined;
   const ctx: ScanContext = {
-    displayUrl: staticReport.normalizedUrl,
+    displayUrl,
     registrableDomain: staticReport.registrableDomain,
     staticFindings: staticReport.findings,
     staticScore: staticReport.score,
@@ -1149,6 +1313,7 @@ export async function runScan(
     forms,
     formsCaptured,
     externalScriptDomains,
+    externalScriptSrcHosts,
     externalScriptsCaptured,
     visionAnswer,
     warnings,
@@ -1161,14 +1326,34 @@ export async function runScan(
           artifactId: storedScreenshot.id,
         }
       : undefined,
+    rawUrlArtifactId,
   };
 
   // ---- 知识库初始核验（离线只读）：主域归属 / 第三方目标域 / 相似案例 --------
   const knowledge = buildInitialKnowledgeState(ctx, services);
   ctx.knowledge = knowledge;
 
-  const { evidence, analyzerInput } = buildEvidence(ctx);
+  const builtEvidence = buildEvidence(ctx);
+  // 证据池同 ID 防撞兜底（审计 F11）：同 ID 同内容合并；同 ID 不同内容改名并可见报警
+  const { evidence: pooledEvidence, conflicts: evidenceIdConflicts } = mergeEvidenceIdCollisions(
+    builtEvidence.evidence,
+  );
+  const evidence = pooledEvidence;
+  if (evidenceIdConflicts.length > 0) {
+    evidence.push({
+      id: "ev-evidence-conflicts",
+      type: "text",
+      capturedAt: new Date().toISOString(),
+      source: "orchestrator:evidence-pool",
+      locator: "evidence pool",
+      excerpt:
+        `证据池出现同 ID 不同内容的冲突（生成侧缺陷，请上报修复），已自动改名保留两条避免覆盖：` +
+        evidenceIdConflicts.join("；"),
+    });
+  }
+  const analyzerInput = builtEvidence.analyzerInput;
   let evidenceIds = new Set(evidence.map((e) => e.id));
+  let knowledgeIds = new Set(evidence.filter((e) => e.type === "knowledge").map((e) => e.id));
 
   const messages: ChatMessage[] = [
     { role: "system", content: analyzerSystemPrompt() },
@@ -1202,7 +1387,7 @@ export async function runScan(
       }
       break;
     }
-    const parsed = parseAssessment(content, evidenceIds);
+    const parsed = parseAssessment(content, evidenceIds, knowledgeIds);
     if (!parsed) {
       if (attempt === 1) {
         // 输出不可解析：在 messages 末尾追加一条纠偏 user 消息，重试一次
@@ -1238,6 +1423,7 @@ export async function runScan(
           ...supplement.map(({ id, summary }) => ({ id, summary })),
         ];
         evidenceIds = new Set(evidence.map((e) => e.id));
+        knowledgeIds = new Set(evidence.filter((e) => e.type === "knowledge").map((e) => e.id));
         const needsRepair = parsed.unsupportedFindingCount > 0 || parsed.unsupportedRisk;
         if (needsRepair) pendingUnsupported = parsed;
         // 重建完整 user 消息：模型必须看到含补证证据摘录的更新版证据清单，才能绑定引用
@@ -1309,10 +1495,13 @@ export async function runScan(
   }
 
   // ---- 组装快照 + 校验 ----------------------------------------------------
-  const artifactIds = ctx.screenshot ? [ctx.screenshot.artifactId] : [];
+  const artifactIds = [
+    ...(ctx.screenshot ? [ctx.screenshot.artifactId] : []),
+    ...(ctx.rawUrlArtifactId ? [ctx.rawUrlArtifactId] : []),
+  ];
   return finalizeSnapshot(
     buildSnapshot(
-      { displayUrl: staticReport.normalizedUrl, registrableDomain: staticReport.registrableDomain },
+      { displayUrl, registrableDomain: staticReport.registrableDomain },
       assessment,
       coverage,
       evidence,

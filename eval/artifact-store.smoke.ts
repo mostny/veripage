@@ -267,6 +267,44 @@ await abandonedScan("client-cancel");
   }
 }
 
+// Text evidence artifacts (audit F01): the raw URL is preserved for forensics when its
+// display form is minimized; same session/access rules as PNG artifacts apply.
+{
+  const taskId = randomUUID();
+  const session = await artifactStore.createSession(taskId);
+  const rawUrlBytes = Buffer.from("https://token-link.example/?token=AUDIT_TOKEN_X&keep=1", "utf8");
+  const saved = await artifactStore.save(taskId, session.token, rawUrlBytes, { mediaType: "text/plain" });
+  check(
+    "text/plain evidence artifact saves without dimensions",
+    saved.mediaType === "text/plain" && saved.width === undefined && saved.height === undefined && saved.byteLength === rawUrlBytes.byteLength,
+  );
+  const retrieved = await artifactStore.get(taskId, session.token, saved.id);
+  check("text evidence artifact round-trips its exact bytes", retrieved !== null && Buffer.compare(retrieved.bytes, rawUrlBytes) === 0);
+
+  const response = await getArtifact(
+    new Request(`http://veripage.local/api/scans/${taskId}/artifacts/${saved.id}`, {
+      headers: { cookie: `${artifactCookieName(taskId)}=${session.token}` },
+    }),
+    { params: Promise.resolve({ id: taskId, artifactId: saved.id }) },
+  );
+  check(
+    "artifact endpoint serves text evidence with text/plain content type",
+    response.status === 200 &&
+      response.headers.get("content-type") === "text/plain" &&
+      (await response.text()) === rawUrlBytes.toString("utf8"),
+  );
+  check("text evidence download filename is not a mislabeled .png", response.headers.get("content-disposition")?.includes("evidence.txt") === true);
+
+  let emptyTextRejected = false;
+  try {
+    await artifactStore.save(taskId, session.token, Buffer.alloc(0), { mediaType: "text/plain" });
+  } catch {
+    emptyTextRejected = true;
+  }
+  check("empty text evidence artifacts are rejected", emptyTextRejected);
+  await artifactStore.removeTask(taskId);
+}
+
 // Files are private to the service account and the configured store size is enforced.
 {
   const parent = await mkdtemp(path.join(tmpdir(), "veripage-artifact-test-"));

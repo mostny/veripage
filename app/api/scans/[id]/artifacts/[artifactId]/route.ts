@@ -48,7 +48,10 @@ export async function GET(
     const headers = noStoreHeaders();
     headers.set("Content-Type", artifact.mediaType);
     headers.set("Content-Length", String(artifact.byteLength));
-    headers.set("Content-Disposition", 'inline; filename="evidence.png"');
+    headers.set(
+      "Content-Disposition",
+      `inline; filename="evidence.${artifact.mediaType === "image/png" ? "png" : "txt"}"`,
+    );
     const body = new Uint8Array(artifact.bytes.byteLength);
     body.set(artifact.bytes);
     return new Response(body, { status: 200, headers });

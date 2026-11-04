@@ -5,6 +5,8 @@
  * - 只校验 JSON 可解析是不够的——结论引用的 evidence id 必须真实存在于证据池
  * - observed_fact / reference 必须至少绑定 1 条证据；inference 允许引用其他 finding
  *   （推理链显式可见），但不得自引用、不得引用不存在的 id
+ * - 来源等级纪律：knowledge 证据是外部引用级，observed_fact 至少要有一条
+ *   非 knowledge 证据支撑；只引 knowledge 的结论只能标 reference
  * - 充分性与缺口清单、无法判断与未知事项、覆盖状态与原因，必须自洽
  *
  * 契约：收集全部错误后一次性返回，不抛异常——调用方（评测 / 报告页）拿到完整清单。
@@ -85,6 +87,7 @@ export function validateSnapshot(snapshot: CaseSnapshot): ValidationResult {
 
   // 3. id 唯一性与证据绑定（本模块核心价值）
   const evidenceIds = new Set<string>()
+  const evidenceTypeById = new Map<string, EvidenceItem["type"]>()
   for (const e of evidence) {
     if (!isNonEmptyString(e?.id)) {
       errors.push(`存在 id 为空的证据项: ${JSON.stringify(e)}`)
@@ -94,6 +97,7 @@ export function validateSnapshot(snapshot: CaseSnapshot): ValidationResult {
       errors.push(`证据 id 重复: ${e.id}`)
     }
     evidenceIds.add(e.id)
+    if (!evidenceTypeById.has(e.id)) evidenceTypeById.set(e.id, e.type)
   }
 
   const findingIds = new Set<string>()
@@ -153,6 +157,16 @@ export function validateSnapshot(snapshot: CaseSnapshot): ValidationResult {
       for (const ref of refs) {
         if (!evidenceIds.has(ref)) {
           errors.push(`finding[${f.id}] 引用了不存在的证据: ${String(ref)}`)
+        }
+      }
+      // 来源等级纪律：knowledge 证据是外部引用级，观察事实必须由页面/采集证据支撑；
+      // 只引 knowledge 证据的结论只能是 reference（外部引用），不得标 observed_fact
+      if (f.kind === "observed_fact") {
+        const knownRefs = refs.filter((ref) => evidenceIds.has(ref))
+        if (knownRefs.length > 0 && knownRefs.every((ref) => evidenceTypeById.get(ref) === "knowledge")) {
+          errors.push(
+            `finding[${f.id}] (observed_fact) 仅引用 knowledge 证据：知识库条目属外部引用级，该结论应为 reference`,
+          )
         }
       }
     }
