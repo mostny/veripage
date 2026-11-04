@@ -18,6 +18,10 @@ import { PROMPT_VERSION } from "../lib/prompts/analyzer.ts";
 import { KNOWLEDGE_VERSION } from "../lib/knowledge/index.ts";
 import type { ChatMessage, ChatResult } from "../lib/models.ts";
 import type { FetchPageResult, PageEvidence } from "../lib/tools/fetch-page.ts";
+import { getRegistrableDomain } from "../lib/tools/url-static.ts";
+import { analyzeUrlStatic } from "../lib/tools/url-static.ts";
+import { HIDDEN_URL_PARAM_VALUE } from "../lib/tools/url-display.ts";
+import type { StoredArtifact } from "../lib/artifacts/store.ts";
 
 let fail = 0;
 const check = (name: string, ok: boolean, detail = "") => {
@@ -50,6 +54,11 @@ function startFixtureServer(html: string): Promise<{ url: string; close: () => P
  * 拉取本地 fixture HTML 并组装 PageEvidence（不启动 Playwright，保持轻量离线）。
  * 导航记录（startUrl/finalUrl/redirectChain）按被扫描 URL 记——fixture 只提供页面内容，
  * 跳转链不指向 127.0.0.1，否则本地服务地址会被误判为第三方「新域」。
+ *
+ * 审计 F08 契约：externalScripts 证据必须用「真实采集器形状」——domains 是
+ * 可注册域（jsdelivr.net），scripts[].src 保留完整 URL（hostname 为 cdn.jsdelivr.net）。
+ * 知识库按精确 hostname 收录，编排器用 src 的 hostname 查库；此前 fixture 把完整
+ * hostname 塞进 domains，掩盖了「可注册域查询假阴性」的集成缺陷。
  */
 async function fetchLocalPage(scannedUrl: string, fixtureUrl: string): Promise<FetchPageResult> {
   const html = await new Promise<string>((resolve, reject) => {
@@ -71,16 +80,22 @@ async function fetchLocalPage(scannedUrl: string, fixtureUrl: string): Promise<F
     .trim();
   const action = /<form[^>]*action=["']?([^"'\s>]+)/i.exec(html)?.[1] ?? "";
   const hasPassword = /type=["']?password/i.test(html);
-  const selfHost = new URL(fixtureUrl).hostname;
-  const scriptDomains = [...html.matchAll(/<script[^>]*src=["']?([^"'\s>]+)/gi)]
-    .map((m) => {
-      try {
-        return new URL(m[1], fixtureUrl).hostname;
-      } catch {
-        return "";
-      }
-    })
-    .filter((d) => d !== "" && d !== selfHost);
+  const pageDomain = getRegistrableDomain(new URL(scannedUrl).hostname.toLowerCase());
+  const scripts = [
+    ...new Set(
+      [...html.matchAll(/<script[^>]*src=["']?([^"'\s>]+)/gi)]
+        .map((m) => {
+          try {
+            return new URL(m[1], fixtureUrl).toString();
+          } catch {
+            return "";
+          }
+        })
+        .filter((src) => src !== ""),
+    ),
+  ].map((src) => ({ src, domain: getRegistrableDomain(new URL(src).hostname.toLowerCase()) }));
+  const thirdPartyScripts = scripts.filter((s) => s.domain !== pageDomain);
+  const scriptDomains = [...new Set(thirdPartyScripts.map((s) => s.domain))];
   const evidence: PageEvidence[] = [
     { id: "fx-text", capturedAt, type: "text", source: "fixture:http", title, text, truncated: false },
     {
@@ -90,7 +105,14 @@ async function fetchLocalPage(scannedUrl: string, fixtureUrl: string): Promise<F
       source: "fixture:http",
       forms: [{ action, method: "post", hasPasswordInput: hasPassword, inputCount: 2 }],
     },
-    { id: "fx-scripts", capturedAt, type: "externalScripts", source: "fixture:http", domains: scriptDomains, scripts: [] },
+    {
+      id: "fx-scripts",
+      capturedAt,
+      type: "externalScripts",
+      source: "fixture:http",
+      domains: scriptDomains,
+      scripts: thirdPartyScripts,
+    },
   ];
   return {
     blocked: false,
@@ -231,6 +253,13 @@ async function withServer(html: string): Promise<string> {
   check("SSO 命中话术=已收录授权登录/公共服务", sso?.excerpt?.includes("已收录授权登录/公共服务") === true, sso?.excerpt?.slice(0, 80));
   check("命中 QQ 互联与 jsDelivr 两项", (sso?.excerpt ?? "").includes("QQ 互联") && (sso?.excerpt ?? "").includes("jsDelivr"));
   check("首调输入含 [ev-knowledge-sso]", String(calls[0]?.[1]?.content ?? "").includes("[ev-knowledge-sso]"));
+  // 审计 F08：fixture 用真实采集器形状（domain=jsdelivr.net、src hostname=cdn.jsdelivr.net），
+  // 知识核验必须按完整 hostname 命中，不得再出现「未在本库收录」假阴性。
+  check("知识核验按完整 hostname 命中 jsDelivr", (sso?.excerpt ?? "").includes("cdn.jsdelivr.net：已收录") === true, sso?.excerpt);
+  check("知识核验不再对 jsdelivr 报未收录", (sso?.excerpt ?? "").includes("jsdelivr.net：未在本库收录") === false);
+  check("ev-knowledge-sso locator 记录完整 hostname", (sso?.locator ?? "").includes("cdn.jsdelivr.net") === true, sso?.locator);
+  const scriptsEvidence = snapshot.evidence.find((e) => e.id === "ev-scripts");
+  check("ev-scripts 仍按可注册域展示第三方关系", scriptsEvidence?.excerpt?.includes("jsdelivr.net") === true, scriptsEvidence?.excerpt);
   assertDiscipline(snapshot, "SSO 命中 fixture");
   check("SSO 快照硬错误为 0", validateSnapshot(snapshot).errors.filter((e) => !e.startsWith("[warn]")).length === 0);
 }
@@ -300,6 +329,8 @@ async function withServer(html: string): Promise<string> {
       summary: "跳转目标域名归属未知",
       findings: [
         {
+          // 审计 F10：模型把仅引 knowledge 证据的结论标成 observed_fact；
+          // 编排器按来源等级纪律降级为 reference（外部引用级），validate 仍通过。
           id: "f2",
           statement: "跳转目标域名未收录于官方域白名单，归属未知",
           kind: "observed_fact",
@@ -317,6 +348,7 @@ async function withServer(html: string): Promise<string> {
   check("第二次调用输入含补证证据 id", calls[1]?.some((m) => String(m.content).includes("[ev-knowledge-sup-1]")) === true);
   check("补证证据写明跳转新域", (snapshot.evidence.find((e) => e.id === "ev-knowledge-sup-1")?.excerpt ?? "").includes("pay-confirm.example.net"));
   check("补证后结论可绑定新证据", snapshot.originalAssessment.findings.some((f) => f.evidenceIds.includes("ev-knowledge-sup-1")));
+  check("仅引补证 knowledge 的 observed_fact 降级为 reference", snapshot.originalAssessment.findings.find((f) => f.id === "f2")?.kind === "reference");
   assertDiscipline(snapshot, "补证轮 fixture");
   check("补证轮快照硬错误为 0", validateSnapshot(snapshot).errors.filter((e) => !e.startsWith("[warn]")).length === 0);
 }
@@ -428,6 +460,165 @@ async function withServer(html: string): Promise<string> {
   check("S0 拒绝路径 versions.knowledge=引擎版本", snapshot.versions.knowledge === KNOWLEDGE_VERSION, snapshot.versions.knowledge);
   check("S0 拒绝路径未调用主分析", !events.some((e) => e.type === "step" && e.step === "gate3-analyzer" && e.state === "completed"));
   check("S0 快照硬错误为 0", validateSnapshot(snapshot).errors.filter((e) => !e.startsWith("[warn]")).length === 0);
+}
+
+// ---------------------------------------------------------------------------
+// 10. 审计 F09：传模正文与留存 excerpt 逐字符一致（同一份 1200 字规范化摘录）
+// ---------------------------------------------------------------------------
+{
+  const fixtureUrl = await withServer(`<html><head><title>正文一致性</title></head><body>占位</body></html>`);
+  const marker = "TAIL_FACT_MARKER_尾部事实";
+  const longText = "甲".repeat(1250) + marker; // 1,273 字，尾部标记在统一裁剪点 1,200 之后
+  const fetchPage = async (): Promise<FetchPageResult> => {
+    const page = await fetchLocalPage("http://alignment.example/", fixtureUrl);
+    return {
+      ...page,
+      evidence: page.evidence.map((e) => (e.type === "text" ? { ...e, title: "正文一致性", text: longText } : e)),
+    };
+  };
+  const reply = assessmentJson({
+    findings: [
+      {
+        id: "f-tail",
+        statement: `正文含尾部标记 ${marker}`,
+        kind: "observed_fact",
+        evidenceIds: ["ev-text"],
+        alternativeExplanations: [],
+      },
+    ],
+  });
+  const { snapshot, calls } = await runFixture({ scanUrl: "http://alignment.example/", fixtureUrl, replies: [reply], fetchPage });
+  snapshots.push(snapshot);
+  const userMessage = String(calls[0]?.[1]?.content ?? "");
+  const modelInputText = /<<<\n([\s\S]*?)\n>>>/.exec(userMessage)?.[1] ?? "";
+  const excerpt = snapshot.evidence.find((e) => e.id === "ev-text")?.excerpt ?? "";
+  check("模型输入正文 = 留存 excerpt（逐字符一致）", modelInputText !== "" && modelInputText === excerpt, `输入 ${modelInputText.length} 字 / 留存 ${excerpt.length} 字`);
+  check("两边同被裁到 1,200（尾部标记同不出现）", !modelInputText.includes(marker) && !excerpt.includes(marker));
+  check("统一摘录带截断标记", excerpt.includes("（已截断）") === true, excerpt.slice(-20));
+  check("引用尾部事实的 finding 保留且通过绑定", snapshot.originalAssessment.findings.some((f) => f.id === "f-tail" && f.evidenceIds.includes("ev-text")));
+  check("一致性快照硬错误为 0", validateSnapshot(snapshot).errors.filter((e) => !e.startsWith("[warn]")).length === 0);
+}
+
+// ---------------------------------------------------------------------------
+// 11. 审计 F10：只引 knowledge 证据的 observed_fact 降级 reference；文本证据用例不回归
+// ---------------------------------------------------------------------------
+{
+  const fixtureUrl = await withServer(`<html><head><title>品牌核对</title></head><body>页面自称某品牌</body></html>`);
+  const reply = assessmentJson({
+    findings: [
+      { id: "f-kb-only", statement: "主域未收录于官方域白名单（仅引知识库证据）", kind: "observed_fact", evidenceIds: ["ev-knowledge-brand"], alternativeExplanations: [] },
+      { id: "f-text", statement: "页面标题为「品牌核对」", kind: "observed_fact", evidenceIds: ["ev-title"], alternativeExplanations: [] },
+      { id: "f-mixed", statement: "页面自称品牌且主域未收录", kind: "observed_fact", evidenceIds: ["ev-knowledge-brand", "ev-title"], alternativeExplanations: [] },
+    ],
+  });
+  const { snapshot } = await runFixture({ scanUrl: "http://brand-check.example/", fixtureUrl, replies: [reply] });
+  snapshots.push(snapshot);
+  const findings = snapshot.originalAssessment.findings;
+  check("只引 knowledge 的 observed_fact 降级为 reference", findings.find((f) => f.id === "f-kb-only")?.kind === "reference");
+  check("页面证据支撑的 observed_fact 保持原级", findings.find((f) => f.id === "f-text")?.kind === "observed_fact");
+  check("混合引用（含页面证据）不降级", findings.find((f) => f.id === "f-mixed")?.kind === "observed_fact");
+  const graded = validateSnapshot(snapshot);
+  check("来源等级降级后快照硬错误为 0", graded.errors.filter((e) => !e.startsWith("[warn]")).length === 0, graded.errors.join(" | "));
+  // 校验器独立把关：手工改回 observed_fact 必须被 validate 拒绝（硬错误）
+  const tampered = structuredClone(snapshot);
+  const kbOnly = tampered.originalAssessment.findings.find((f) => f.id === "f-kb-only");
+  if (kbOnly) kbOnly.kind = "observed_fact";
+  const tamperedResult = validateSnapshot(tampered);
+  check(
+    "validate 拒绝仅引 knowledge 的 observed_fact",
+    tamperedResult.errors.some((e) => !e.startsWith("[warn]") && e.includes("仅引用 knowledge 证据")),
+    tamperedResult.errors.join(" | "),
+  );
+  assertDiscipline(snapshot, "来源等级 fixture");
+}
+
+// ---------------------------------------------------------------------------
+// 12. 审计 F01（URL 部分）：token 参数不进传模文本/报告，原始 URL 存取证副本
+// ---------------------------------------------------------------------------
+{
+  const fixtureUrl = await withServer(`<html><head><title>链接隐私</title></head><body>普通内容</body></html>`);
+  const token = "AUDIT_TOKEN_X";
+  const scanUrl = `https://token-link.example/?token=${token}&keep=1`;
+  const savedArtifacts: Array<{ bytes: string; metadata: { mediaType?: string } }> = [];
+  const calls: ChatMessage[][] = [];
+  const snapshot = await runScan(scanUrl, () => undefined, {
+    artifactSession: { taskId: "11111111-2222-4333-8444-555555555555", token: "fixture-token" },
+    services: {
+      guard: stubGuard,
+      fetchPage: () => fetchLocalPage(scanUrl, fixtureUrl),
+      visionChat: async () => ({ content: "", toolCalls: [] }),
+      chat: stubChat([assessmentJson()], calls),
+      saveArtifact: async (
+        taskId: string,
+        _token: string,
+        bytes: Uint8Array,
+        metadata: { mediaType: "image/png" | "text/plain" },
+      ): Promise<StoredArtifact> => {
+        savedArtifacts.push({ bytes: Buffer.from(bytes).toString("utf8"), metadata });
+        return { id: "art-raw-url", taskId, expiresAt: new Date().toISOString(), mediaType: metadata.mediaType, byteLength: bytes.byteLength };
+      },
+    },
+  });
+  snapshots.push(snapshot);
+  const userMessage = String(calls[0]?.[1]?.content ?? "");
+  check("模型输入不含裸 token", !userMessage.includes(token));
+  check("模型输入含占位形态", userMessage.includes(`token=${HIDDEN_URL_PARAM_VALUE}`));
+  check("最终报告 JSON 不含裸 token", !JSON.stringify(snapshot).includes(token));
+  check(
+    "报告展示最小化 URL",
+    snapshot.inputSummary.displayUrl === `https://token-link.example/?token=${HIDDEN_URL_PARAM_VALUE}&keep=1`,
+    snapshot.inputSummary.displayUrl,
+  );
+  check("原始 URL 保存为取证副本（可回查）", savedArtifacts.length === 1 && (savedArtifacts[0]?.bytes.includes(token) ?? false), JSON.stringify(savedArtifacts));
+  check("取证副本为 text/plain 产物", savedArtifacts[0]?.metadata.mediaType === "text/plain");
+  check("ev-url 挂取证副本引用", snapshot.evidence.find((e) => e.id === "ev-url")?.artifactId === "art-raw-url");
+  check("快照 artifactIds 含取证副本", snapshot.artifactIds.includes("art-raw-url"));
+  assertDiscipline(snapshot, "URL 隐私 fixture");
+  check("URL 隐私快照硬错误为 0", validateSnapshot(snapshot).errors.filter((e) => !e.startsWith("[warn]")).length === 0);
+}
+
+// ---------------------------------------------------------------------------
+// 13. 审计 F11：真实 url-static 修复后扫 jd.com 不再有重复证据 ID；
+//     人为构造同 ID 不同内容冲突时兜底改名 + 可见报警，不静默
+// ---------------------------------------------------------------------------
+{
+  const fixtureUrl = await withServer(`<html><head><title>京东</title></head><body>京东页面</body></html>`);
+  const { snapshot } = await runFixture({ scanUrl: "https://jd.com/", fixtureUrl, replies: [assessmentJson()] });
+  snapshots.push(snapshot);
+  const ids = snapshot.evidence.map((e) => e.id);
+  const duplicated = ids.filter((id, i) => ids.indexOf(id) !== i);
+  check("jd.com 快照证据 ID 全局唯一", duplicated.length === 0, duplicated.join(","));
+  check("jd.com 的 levenshtein:qq.com 只有一条", ids.filter((id) => id === "levenshtein:qq.com").length === 1);
+  const jdValidation = validateSnapshot(snapshot);
+  check("jd.com 真实报告 validate 硬错误为 0", jdValidation.errors.filter((e) => !e.startsWith("[warn]")).length === 0, jdValidation.errors.join(" | "));
+  check("正常路径无冲突报警证据", !snapshot.evidence.some((e) => e.id === "ev-evidence-conflicts"));
+}
+{
+  const fixtureUrl = await withServer(`<html><head><title>冲突</title></head><body>冲突页</body></html>`);
+  const clashAnalyzeUrl = (input: string) => {
+    const base = analyzeUrlStatic(input);
+    return {
+      ...base,
+      findings: [
+        ...base.findings,
+        { id: "clash-fact", level: "fact" as const, title: "冲突事实A", detail: "detail-a", weight: 2 },
+        { id: "clash-fact", level: "fact" as const, title: "冲突事实B", detail: "detail-b", weight: 3 },
+      ],
+    };
+  };
+  const { snapshot } = await runFixture({
+    scanUrl: "http://clash.example/",
+    fixtureUrl,
+    replies: [assessmentJson()],
+    services: { analyzeUrl: clashAnalyzeUrl },
+  });
+  snapshots.push(snapshot);
+  check("同 ID 不同内容被改名保留（不静默合并/覆盖）", snapshot.evidence.some((e) => e.id === "clash-fact#conflict-1"));
+  check("改名后证据 ID 全局唯一", new Set(snapshot.evidence.map((e) => e.id)).size === snapshot.evidence.length);
+  const warn = snapshot.evidence.find((e) => e.id === "ev-evidence-conflicts");
+  check("冲突报警写进可见证据", warn?.excerpt?.includes("clash-fact") === true, warn?.excerpt?.slice(0, 90));
+  const clashValidation = validateSnapshot(snapshot);
+  check("冲突兜底后快照 validate 硬错误为 0", clashValidation.errors.filter((e) => !e.startsWith("[warn]")).length === 0, clashValidation.errors.join(" | "));
 }
 
 // ---------------------------------------------------------------------------

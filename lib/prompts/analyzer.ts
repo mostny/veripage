@@ -8,6 +8,8 @@
  * - 版本号进入快照 versions.prompt，保证实验可复现
  */
 
+import { minimizeUrlForDisplay } from "../tools/url-display.ts";
+
 export const PROMPT_VERSION = "1.1.0";
 
 /** 闸门③ 主分析系统提示 */
@@ -115,7 +117,9 @@ export interface AnalyzerEvidenceInput {
 /** 组装主分析 user 消息：证据清单是唯一事实来源 */
 export function buildAnalyzerUserMessage(input: AnalyzerEvidenceInput): string {
   const lines: string[] = [];
-  lines.push(`【待核验 URL】${input.url}`);
+  // 出口纪律（审计 F01）：进入模型文本的 URL 一律走展示最小化，凭据样参数值不外发；
+  // 编排器在组装 input 时已最小化，这里再过一遍是防线（对已最小化输入幂等）。
+  lines.push(`【待核验 URL】${minimizeUrlForDisplay(input.url)}`);
   lines.push(`【可注册主域】${input.registrableDomain}`);
   lines.push("");
   lines.push("【证据清单】（findings.evidenceIds 只能引用以下 id）");
@@ -131,7 +135,7 @@ export function buildAnalyzerUserMessage(input: AnalyzerEvidenceInput): string {
   }
 
   if (input.redirectChainCaptured ?? input.redirectChain.length > 0) {
-    lines.push(`- [ev-redirect] 跳转链：${input.redirectChain.join(" → ")}`);
+    lines.push(`- [ev-redirect] 跳转链：${input.redirectChain.map(minimizeUrlForDisplay).join(" → ")}`);
   } else {
     lines.push("【跳转链】未成功采集；不能推断不存在跳转");
   }
@@ -142,7 +146,7 @@ export function buildAnalyzerUserMessage(input: AnalyzerEvidenceInput): string {
   if (input.forms.length > 0) {
     for (const f of input.forms) {
       lines.push(
-        `- [${f.id}] 表单：action=${f.action || "(空，提交到当前页)"} method=${f.method} 密码框=${f.hasPasswordInput ? "有" : "无"} 输入项=${f.inputCount}`,
+        `- [${f.id}] 表单：action=${f.action ? minimizeUrlForDisplay(f.action) : "(空，提交到当前页)"} method=${f.method} 密码框=${f.hasPasswordInput ? "有" : "无"} 输入项=${f.inputCount}`,
       );
     }
   } else if (input.formsCaptured ?? input.forms.length > 0) {
