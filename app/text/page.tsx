@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { MAX_TEXT_LENGTH } from "../api/text/route";
 
@@ -65,6 +65,14 @@ export default function TextPage() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<TextAnalysisResponse | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  // F01 知情选择：默认 false —— 默认只发送脱敏后的文本给模型
+  const [allowRawInput, setAllowRawInput] = useState(false);
+
+  // F05 竞态防护：请求代际 ref（仅最新代际可写状态）+ AbortController（新提交先 abort 旧的）
+  // + 在飞标记 ref（键盘提交在 loading 中同步忽略，防止按钮禁用挡不住的重复触发）
+  const generationRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const inFlightRef = useRef(false);
 
   async function analyze() {
     const trimmed = text.trim();
@@ -72,6 +80,12 @@ export default function TextPage() {
       setError("请先粘贴或输入要检测的文本");
       return;
     }
+    // 新一代提交：取消上一代请求，登记代际；旧代际的任何状态写入都会被丢弃
+    abortRef.current?.abort();
+    const generation = ++generationRef.current;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    inFlightRef.current = true;
     setLoading(true);
     setError("");
     setResult(null);
@@ -80,9 +94,11 @@ export default function TextPage() {
       const res = await fetch("/api/text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: trimmed }),
+        body: JSON.stringify({ text: trimmed, ...(allowRawInput ? { allowRawInput: true } : {}) }),
+        signal: controller.signal,
       });
       const data = (await res.json().catch(() => null)) as (TextAnalysisResponse & { error?: string }) | null;
+      if (generation !== generationRef.current) return; // 旧代际：已被新提交取代，静默丢弃
       if (!res.ok) {
         // 失败必须显式：包括「两次解析失败」的 502，不做任何默认判定
         throw new Error(data?.error ?? `检测请求失败（HTTP ${res.status}）`);
@@ -92,10 +108,17 @@ export default function TextPage() {
       }
       setResult(data);
     } catch (err) {
-      setResult(null);
-      setError(err instanceof Error ? err.message : "检测请求失败，请稍后重试");
+      if (generation !== generationRef.current) return; // 旧代际（含被 abort 的 AbortError）：静默
+      const aborted = err instanceof DOMException && err.name === "AbortError";
+      if (!aborted) {
+        setResult(null);
+        setError(err instanceof Error ? err.message : "检测请求失败，请稍后重试");
+      }
     } finally {
-      setLoading(false);
+      if (generation === generationRef.current) {
+        inFlightRef.current = false;
+        setLoading(false);
+      }
     }
   }
 
@@ -145,6 +168,8 @@ export default function TextPage() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
+                // F05：loading 中的键盘提交（含按住 Ctrl+Enter 的自动重复）直接忽略
+                if (inFlightRef.current) return;
                 void analyze();
               }
             }}
@@ -158,13 +183,27 @@ export default function TextPage() {
             </span>
             <button
               onClick={() => void analyze()}
-              disabled={loading}
               aria-busy={loading}
-              className="shrink-0 rounded-lg bg-sky-500 px-5 py-2.5 text-sm font-semibold text-neutral-950 transition hover:bg-sky-400 disabled:opacity-50"
+              title={loading ? "重新提交会取消当前分析，以最新一次为准" : undefined}
+              className="shrink-0 rounded-lg bg-sky-500 px-5 py-2.5 text-sm font-semibold text-neutral-950 transition hover:bg-sky-400"
             >
-              {loading ? "分析中…" : "开始分析"}
+              {loading ? "分析中…（可重新提交）" : "开始分析"}
             </button>
           </div>
+          <p id="raw-input-note" className="mt-3 text-xs leading-relaxed text-neutral-500">
+            提交说明：AIGC 判定默认只把<strong className="font-medium text-neutral-300">脱敏后的文本</strong>
+            发送给模型（本地正则先替换手机号/邮箱等，原文不出本机）；如需更完整的判定可勾选下方选项，随请求显式发送原文。
+          </p>
+          <label htmlFor="raw-input-checkbox" className="mt-1.5 flex items-center gap-2 text-xs text-neutral-400">
+            <input
+              id="raw-input-checkbox"
+              type="checkbox"
+              checked={allowRawInput}
+              onChange={(e) => setAllowRawInput(e.target.checked)}
+              className="h-3.5 w-3.5 accent-sky-500"
+            />
+            发送原文以获得更完整判定（含手机号/邮箱等）
+          </label>
           {error && (
             <p id="analyze-error" role="alert" className="mt-3 rounded-lg border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
               {error}
@@ -174,7 +213,7 @@ export default function TextPage() {
 
         {loading && (
           <p id="loading-indicator" className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-center text-sm text-neutral-400">
-            分析中：AIGC 判定走模型，脱敏在本地进行…
+            {`分析中：AIGC 判定走模型（${allowRawInput ? "已选择发送原文" : "仅发送脱敏文本"}），脱敏在本地进行…`}
           </p>
         )}
 

@@ -182,7 +182,14 @@ function findEmails(text: string): Candidate[] {
   return out;
 }
 
-/** 按优先级消解重叠区间：优先级高的先占位，后到的重叠候选直接丢弃 */
+/**
+ * 消解重叠区间（审计 F07）：
+ * - 包含者优先：候选把已占位命中完全包含在内（区间严格更大）时，保留更长的外层命中
+ *   ——典型场景：邮箱 local part 内嵌的手机号/身份证（alice+13800138000@example.com），
+ *   整只邮箱必须整体脱敏，不能被局部手机号拆散
+ * - 相交但不包含：沿用类型优先级，优先级高的先占位，后到的候选直接丢弃
+ *   （18 位身份证与银行卡同区间时身份证赢的行为保持不变；同区间不视为「包含」）
+ */
 function resolveOverlaps(candidates: Candidate[]): Candidate[] {
   const sorted = [...candidates].sort((a, b) => {
     const p = TYPE_PRIORITY[a.type] - TYPE_PRIORITY[b.type];
@@ -190,8 +197,19 @@ function resolveOverlaps(candidates: Candidate[]): Candidate[] {
   });
   const taken: Candidate[] = [];
   for (const c of sorted) {
-    const clash = taken.some((t) => c.start < t.end && t.start < c.end);
-    if (!clash) taken.push(c);
+    // 先裁决后改动：被 c 完全包含的已占位命中让位（外层完整命中优先）；
+    // 只要还有任何相交但不包含的占位命中，c 照旧按优先级丢弃，不让位结果失真
+    const swallowed: number[] = [];
+    let clash = false;
+    for (let i = 0; i < taken.length; i += 1) {
+      const t = taken[i];
+      const strictlyInside = c.start <= t.start && t.end <= c.end && (c.start < t.start || t.end < c.end);
+      if (strictlyInside) swallowed.push(i);
+      else if (c.start < t.end && t.start < c.end) clash = true;
+    }
+    if (clash) continue;
+    for (let i = swallowed.length - 1; i >= 0; i -= 1) taken.splice(swallowed[i], 1);
+    taken.push(c);
   }
   return taken.sort((a, b) => a.start - b.start);
 }

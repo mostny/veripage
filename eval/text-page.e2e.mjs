@@ -3,6 +3,12 @@
  * Build first, then run: node eval/text-page.e2e.mjs
  * Pattern follows eval/workbench.e2e.mjs (free port -> next start -> Playwright).
  * No external target navigation and no model/API credential are used.
+ *
+ * Audit regressions covered here:
+ * - F01: default submission sends no allowRawInput (redacted-only), explicit opt-in sends true
+ * - F05: while A is pending, switching input to B and resubmitting must end with B's
+ *   response only — the stale A response must never overwrite it, and Ctrl+Enter
+ *   auto-repeats during loading are ignored
  */
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
@@ -105,11 +111,15 @@ try {
   const page = await context.newPage();
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  await page.route("**/api/text", (route) => route.fulfill({
-    status: 200,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-    body: JSON.stringify(fixture),
-  }));
+  const submittedBodies = [];
+  await page.route("**/api/text", (route) => {
+    submittedBodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      body: JSON.stringify(fixture),
+    });
+  });
 
   // 1. 首屏渲染 + 空状态
   await page.goto(`http://127.0.0.1:${port}/text`);
@@ -118,11 +128,28 @@ try {
   check("empty state hint shown before analysis", await page.locator("#empty-hint").count() === 1);
   check("no result regions before analysis", await page.locator("#aigc-result").count() === 0 && await page.locator("#redaction-result").count() === 0);
 
+  // 1b. F01 知情选择：提交前明示「默认仅发送脱敏文本」，复选框默认关闭
+  check("raw-input note explains redacted-only default before submission",
+    (await page.locator("#raw-input-note").textContent()).includes("默认只把") && (await page.locator("#raw-input-note").textContent()).includes("脱敏后的文本"));
+  check("raw-input opt-in checkbox defaults to off", await page.locator("#raw-input-checkbox").isChecked() === false);
+
   // 2. 键盘提交（Ctrl+Enter）出结果
   await page.locator("#text-input").fill(input);
   await page.locator("#text-input").press("Control+Enter");
   await page.locator("#aigc-result").waitFor();
   check("keyboard Ctrl+Enter submits and renders results", await page.locator("#aigc-result").count() === 1 && await page.locator("#redaction-result").count() === 1);
+  check("F01 default submission omits allowRawInput (redacted-only)",
+    submittedBodies.length === 1 && submittedBodies[0].text === input && submittedBodies[0].allowRawInput === undefined,
+    JSON.stringify(submittedBodies.at(-1)));
+
+  // 2b. F01 显式 opt-in：勾选后才带 allowRawInput: true
+  await page.locator("#raw-input-checkbox").check();
+  await page.getByRole("button", { name: "开始分析" }).click();
+  await page.locator("#aigc-result").waitFor();
+  check("F01 opt-in submission carries allowRawInput: true",
+    submittedBodies.length === 2 && submittedBodies[1].allowRawInput === true,
+    JSON.stringify(submittedBodies.at(-1)));
+  await page.locator("#raw-input-checkbox").uncheck();
 
   // 3. AIGC 判定区：倾向 + 置信度 + signals + caveats（不做确定性断言）
   check("aigc verdict shows tendency wording", (await page.locator("#aigc-result").textContent()).includes("具有 AI 生成特征"));
@@ -181,6 +208,8 @@ try {
   await loadingPage.getByRole("button", { name: "开始分析" }).click();
   await loadingPage.locator("#loading-indicator").waitFor({ state: "visible" });
   check("loading state is visible while the request is in flight", true);
+  check("loading indicator states redacted-only mode by default",
+    (await loadingPage.locator("#loading-indicator").textContent()).includes("仅发送脱敏文本"));
   await loadingPage.locator("#aigc-result").waitFor();
   check("loading state clears once results arrive", await loadingPage.locator("#loading-indicator").count() === 0);
   await loadingPage.close();
@@ -200,6 +229,72 @@ try {
   check("failed analysis renders no verdict at all", await errorPage.locator("#aigc-result").count() === 0 && await errorPage.locator("#redaction-result").count() === 0);
   check("failed analysis leaves the loading state", await errorPage.locator("#loading-indicator").count() === 0);
   await errorPage.close();
+
+  // 9. F05 竞态回归：A pending 时改 B 提交，B 先回、A 后回，最终必须是 B 的响应
+  //    修复前：无代际保护时 A 的迟到响应会覆盖 B 的结果（审计复现 finalDisplayedResultIsA=true）
+  const racePage = await context.newPage();
+  const raceErrors = [];
+  racePage.on("pageerror", (error) => raceErrors.push(error.message));
+  const RACE_A = "第一次提交的文本 A，包含 marker-alpha 内容。";
+  const RACE_B = "用户改成第二次提交的文本 B，包含 marker-beta 内容。";
+  const fixtureFor = (marker) => ({
+    ...fixture,
+    aigc: { ...fixture.aigc, signals: [marker] },
+  });
+  const raceSubmissions = [];
+  let releaseA;
+  const aGate = new Promise((resolve) => { releaseA = resolve; });
+  await racePage.route("**/api/text", async (route) => {
+    const body = route.request().postDataJSON();
+    raceSubmissions.push(body.text);
+    const isA = body.text === RACE_A;
+    const response = {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      body: JSON.stringify(fixtureFor(isA ? "race-marker-A" : "race-marker-B")),
+    };
+    if (isA) {
+      // A 挂起：等到 B 的响应已被页面渲染后才放行（此时 A 早已被 abort）
+      await aGate;
+      await route.fulfill(response).catch(() => undefined);
+    } else {
+      await route.fulfill(response);
+    }
+  });
+
+  await racePage.goto(`http://127.0.0.1:${port}/text`);
+  await racePage.locator("#text-input").fill(RACE_A);
+  await racePage.getByRole("button", { name: "开始分析" }).click();
+  await racePage.locator("#loading-indicator").waitFor({ state: "visible" });
+
+  // loading 中的键盘提交（自动重复）必须被忽略：不得产生第三次请求
+  await racePage.locator("#text-input").press("Control+Enter");
+  check("F05: Ctrl+Enter during loading is ignored (no extra submission)",
+    raceSubmissions.length === 1 && raceSubmissions[0] === RACE_A,
+    `submissions=${raceSubmissions.length}`);
+
+  // 改输入为 B 并再次提交（按钮在 loading 中仍可重新提交，取消 A）
+  await racePage.locator("#text-input").fill(RACE_B);
+  await racePage.getByRole("button", { name: /分析中/ }).click();
+  await racePage.locator("#aigc-result").waitFor();
+  check("F05: both submissions reached the API (A then B)",
+    raceSubmissions.length === 2 && raceSubmissions[1] === RACE_B,
+    `submissions=${raceSubmissions.length}`);
+
+  // B 先回：结果必须是 B 的响应
+  const raceResultText = await racePage.locator("#aigc-result").textContent();
+  check("F05: displayed result is B's response", raceResultText.includes("race-marker-B") && !raceResultText.includes("race-marker-A"));
+
+  // 释放 A：迟到的 A 响应（即使侥幸送达）也不得覆盖 B 的结果
+  releaseA();
+  await racePage.waitForTimeout(400);
+  const finalResultText = await racePage.locator("#aigc-result").textContent();
+  check("F05: late stale A response never overwrites B's result",
+    finalResultText.includes("race-marker-B") && !finalResultText.includes("race-marker-A"));
+  check("F05: input stays B after the race", (await racePage.locator("#text-input").inputValue()) === RACE_B);
+  check("F05: loading cleared after B's result (stale A cannot resurrect it)", await racePage.locator("#loading-indicator").count() === 0);
+  check("F05: no uncaught page errors during the race", raceErrors.length === 0, raceErrors.join("; "));
+  await racePage.close();
 
   console.log(`ALL-PASS (${passed} browser assertions)`);
 } finally {
