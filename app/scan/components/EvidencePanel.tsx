@@ -53,7 +53,7 @@ export function EvidencePanel({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-medium text-slate-200">{TYPE_LABEL[item.type] ?? item.type}</span>
-                    {item.artifactId && <span className="rounded-full border border-emerald-300/20 px-2 py-0.5 text-[10px] text-emerald-200/70">有短期截图</span>}
+                    {item.artifactId && <span className="rounded-full border border-emerald-300/20 px-2 py-0.5 text-[10px] text-emerald-200/70">{item.type === "screenshot" ? "有短期截图" : "有短期产物"}</span>}
                   </div>
                   <p className="mt-1.5 break-words text-sm leading-5 text-slate-300">{item.excerpt ?? item.locator ?? "采集到证据，但没有文字摘录"}</p>
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-600">

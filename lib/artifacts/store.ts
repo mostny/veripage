@@ -15,11 +15,14 @@ export { ARTIFACT_TTL_MS, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_COUNT, MAX_ARTIFACT_S
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-export interface ArtifactMetadata {
-  mediaType: "image/png";
-  width: number;
-  height: number;
-}
+/**
+ * 截图类产物必须带真实尺寸（与 PNG 字节头一致性校验）；
+ * text/plain 用于小体积文本取证件（如审计 F01：URL 最小化展示后原始完整
+ * URL 的回查副本），不带尺寸。
+ */
+export type ArtifactMetadata =
+  | { mediaType: "image/png"; width: number; height: number }
+  | { mediaType: "text/plain" };
 
 export interface ScanArtifactSession {
   taskId: string;
@@ -31,9 +34,10 @@ export interface StoredArtifact {
   id: string;
   taskId: string;
   expiresAt: string;
-  mediaType: "image/png";
-  width: number;
-  height: number;
+  mediaType: "image/png" | "text/plain";
+  /** 仅 image/png 产物有尺寸；text/plain 产物无此字段 */
+  width?: number;
+  height?: number;
   byteLength: number;
 }
 
@@ -176,7 +180,9 @@ export class FileArtifactStore implements ArtifactStore {
     await this.cleanup();
     const session = this.authorizedSession(taskId, token);
     if (!session) throw new Error("Artifact session is unavailable");
-    if (metadata.mediaType !== "image/png") throw new Error("Unsupported artifact media type");
+    if (metadata.mediaType !== "image/png" && metadata.mediaType !== "text/plain") {
+      throw new Error("Unsupported artifact media type");
+    }
     if (bytes.byteLength === 0 || bytes.byteLength > this.maxArtifactBytes) {
       throw new Error("Artifact exceeds the configured size limit");
     }
@@ -188,12 +194,14 @@ export class FileArtifactStore implements ArtifactStore {
     }
 
     const buffer = Buffer.from(bytes);
-    const dimensions = pngDimensions(buffer);
-    if (!dimensions || dimensions.width !== metadata.width || dimensions.height !== metadata.height) {
-      throw new Error("Artifact PNG dimensions do not match its metadata");
-    }
-    if (dimensions.width * dimensions.height > MAX_SCREENSHOT_PIXELS) {
-      throw new Error("Artifact exceeds the configured pixel limit");
+    const dimensions = metadata.mediaType === "image/png" ? pngDimensions(buffer) : null;
+    if (metadata.mediaType === "image/png") {
+      if (!dimensions || dimensions.width !== metadata.width || dimensions.height !== metadata.height) {
+        throw new Error("Artifact PNG dimensions do not match its metadata");
+      }
+      if (dimensions.width * dimensions.height > MAX_SCREENSHOT_PIXELS) {
+        throw new Error("Artifact exceeds the configured pixel limit");
+      }
     }
 
     this.reservedBytes += buffer.byteLength;
@@ -204,7 +212,8 @@ export class FileArtifactStore implements ArtifactStore {
       signal?.throwIfAborted();
       const id = randomUUID();
       const root = await this.rootDirectory();
-      filePath = path.join(root, `${id}.png`);
+      const extension = metadata.mediaType === "image/png" ? "png" : "txt";
+      filePath = path.join(root, `${id}.${extension}`);
       await writeFile(filePath, buffer, { flag: "wx", mode: 0o600 });
       signal?.throwIfAborted();
       if (this.sessions.get(taskId) !== session || session.expiresAt <= this.now()) {
@@ -218,8 +227,7 @@ export class FileArtifactStore implements ArtifactStore {
         filePath,
         expiresAtMs,
         mediaType: metadata.mediaType,
-        width: dimensions.width,
-        height: dimensions.height,
+        ...(dimensions ? { width: dimensions.width, height: dimensions.height } : {}),
         byteLength: buffer.byteLength,
       };
       this.artifacts.set(id, record);
