@@ -1,0 +1,332 @@
+{
+  "auditDate": "2026-10-30",
+  "auditedCommit": "19b2ee9ee3d28d91fbe3034615d7b8916d8887cc",
+  "comparisonBase": "69ae591594a2c936f1b8e3009b4dda3352e6c4e1",
+  "reportBranch": "audit/2026-10-30-latest-verification",
+  "verdict": "Engineering and controlled-fixture checks passed; unconditional acceptance withheld for privacy, experiment output safety and untrusted-target isolation.",
+  "environment": {
+    "platform": "Linux",
+    "node": "22.23.3",
+    "pnpm": "11.21.0",
+    "next": "16.4.3",
+    "react": "19.3.0",
+    "playwright": "1.64.1",
+    "docker": "27.5.1",
+    "realModelConfigPresent": false,
+    "credentialFilesRead": false
+  },
+  "staticChecks": [
+    {
+      "name": "typegen",
+      "exitCode": 0
+    },
+    {
+      "name": "typescript",
+      "exitCode": 0
+    },
+    {
+      "name": "eslint",
+      "exitCode": 0
+    }
+  ],
+  "existingSmokeSuites": [
+    {
+      "name": "evidence.smoke.ts",
+      "exitCode": 0,
+      "assertions": 5
+    },
+    {
+      "name": "prompts.smoke.ts",
+      "exitCode": 0,
+      "assertions": 25
+    },
+    {
+      "name": "url-static.smoke.ts",
+      "exitCode": 0,
+      "assertions": 29
+    },
+    {
+      "name": "access-guard.smoke.ts",
+      "exitCode": 0,
+      "assertions": 17
+    },
+    {
+      "name": "knowledge.smoke.ts",
+      "exitCode": 0,
+      "assertions": 23
+    },
+    {
+      "name": "m1-regressions.smoke.ts",
+      "exitCode": 0,
+      "assertions": 23
+    },
+    {
+      "name": "scan-sse.smoke.ts",
+      "exitCode": 0,
+      "assertions": 13
+    },
+    {
+      "name": "artifact-store.smoke.ts",
+      "exitCode": 0,
+      "assertions": 30
+    },
+    {
+      "name": "evidence-relations.smoke.ts",
+      "exitCode": 0,
+      "assertions": 5,
+      "printedPassLines": 0,
+      "assertionCountEvidence": "Five assert.deepEqual calls and ALL-PASS (5 evidence relationship assertions) output"
+    },
+    {
+      "name": "m4-knowledge.smoke.ts",
+      "exitCode": 0,
+      "assertions": 55
+    },
+    {
+      "name": "text-line.smoke.ts",
+      "exitCode": 0,
+      "assertions": 64
+    }
+  ],
+  "existingSmokeAssertions": 289,
+  "productionBuildExitCode": 0,
+  "browserChecks": [
+    {
+      "suite": "workbench.e2e.mjs",
+      "assertions": 9,
+      "exitCode": 0,
+      "apiMode": "mock"
+    },
+    {
+      "suite": "text-page.e2e.mjs",
+      "assertions": 23,
+      "exitCode": 0,
+      "apiMode": "mock"
+    }
+  ],
+  "docker": {
+    "buildExitCode": 0,
+    "runtimeChecks": 9,
+    "runtimeExitCode": 0,
+    "network": "none",
+    "runtimeUid": 0,
+    "runtimeNode": "22.23.4",
+    "sourceIntegrity": {
+      "image": "sha256:52a22f828171cbe1b6cc18c2ca817aae26d8020e0670264c441c6b5450ff9e7e",
+      "auditedCommit": "19b2ee9ee3d28d91fbe3034615d7b8916d8887cc",
+      "comparedTrackedFiles": 214,
+      "mismatches": []
+    },
+    "cjkRenderingCheck": {
+      "status": "failed",
+      "chineseFontFamilies": "",
+      "evidence": "images/docker-cjk.png",
+      "usesReviewFontInjection": false
+    },
+    "taskOwnedImageDeletedAfterChecks": true,
+    "globalCachePruned": false
+  },
+  "diagnosticScripts": [
+    "reproduce-text.mjs",
+    "reproduce-smoke-isolation.mjs",
+    "reproduce-evidence.mjs",
+    "reproduce-experiments.mjs",
+    "reproduce-text-race.mjs"
+  ],
+  "diagnosticSemantics": "Successful diagnostic exit reproduces a known defect or verifies stored-data consistency; diagnostics are not green acceptance tests.",
+  "findings": [
+    {
+      "id": "F01",
+      "priority": "P1",
+      "title": "脱敏结果安全不等于原文未外发"
+    },
+    {
+      "id": "F02",
+      "priority": "P1",
+      "title": "试跑参数仍能清空正式实验产物"
+    },
+    {
+      "id": "F03",
+      "priority": "P1",
+      "title": "真实不可信目标的执行隔离没有建立"
+    },
+    {
+      "id": "F04",
+      "priority": "P2",
+      "title": "标为全离线的 smoke 在装桩前到达模型"
+    },
+    {
+      "id": "F05",
+      "priority": "P2",
+      "title": "Ctrl+Enter 绕过 loading，旧响应覆盖新输入"
+    },
+    {
+      "id": "F06",
+      "priority": "P2",
+      "title": "文本路由丢失取消信号，缺少应用层调用期限"
+    },
+    {
+      "id": "F07",
+      "priority": "P2",
+      "title": "邮箱内数字命中会阻止完整邮箱脱敏"
+    },
+    {
+      "id": "F08",
+      "priority": "P2",
+      "title": "采集器与 M4 对脚本域名的契约不一致"
+    },
+    {
+      "id": "F09",
+      "priority": "P2",
+      "title": "同一证据 ID 的模型输入与留存内容不一致"
+    },
+    {
+      "id": "F10",
+      "priority": "P2",
+      "title": "知识条目可被标为观察事实"
+    },
+    {
+      "id": "F11",
+      "priority": "P2",
+      "title": "静态规则重复 ID 仍破坏真实报告"
+    },
+    {
+      "id": "F12",
+      "priority": "P2",
+      "title": "实验错误、重复和混批没有被稳健处理"
+    },
+    {
+      "id": "F13",
+      "priority": "P2",
+      "title": "实验解释超出可支持的结论"
+    },
+    {
+      "id": "F14",
+      "priority": "P2",
+      "title": "预算历史及默认复跑条件不一致"
+    },
+    {
+      "id": "F15",
+      "priority": "P2",
+      "title": "实验本地采集器漏掉客户端跳转"
+    },
+    {
+      "id": "F16",
+      "priority": "P3",
+      "title": "边界配置和文档漂移"
+    },
+    {
+      "id": "F17",
+      "priority": "P2",
+      "title": "Docker 取证浏览器缺中文字形"
+    }
+  ],
+  "storedExperimentGroups": [
+    {
+      "group": "A",
+      "records": 61,
+      "uniqueSampleIds": 61,
+      "statusOk": 61,
+      "maliciousDetected": 10,
+      "maliciousTotal": 33,
+      "benignFalsePositive": 4,
+      "benignTotal": 23,
+      "unknown": 0,
+      "incompleteUnknown": 0
+    },
+    {
+      "group": "B",
+      "records": 61,
+      "uniqueSampleIds": 61,
+      "statusOk": 61,
+      "maliciousDetected": 21,
+      "maliciousTotal": 33,
+      "benignFalsePositive": 9,
+      "benignTotal": 23,
+      "unknown": 16,
+      "incompleteUnknown": 2
+    },
+    {
+      "group": "C",
+      "records": 61,
+      "uniqueSampleIds": 61,
+      "statusOk": 61,
+      "maliciousDetected": 29,
+      "maliciousTotal": 33,
+      "benignFalsePositive": 0,
+      "benignTotal": 23,
+      "unknown": 6,
+      "incompleteUnknown": 2
+    },
+    {
+      "group": "C-no-vision",
+      "records": 61,
+      "uniqueSampleIds": 61,
+      "statusOk": 61,
+      "maliciousDetected": 29,
+      "maliciousTotal": 33,
+      "benignFalsePositive": 1,
+      "benignTotal": 23,
+      "unknown": 8,
+      "incompleteUnknown": 3
+    },
+    {
+      "group": "C-no-kb",
+      "records": 61,
+      "uniqueSampleIds": 61,
+      "statusOk": 61,
+      "maliciousDetected": 30,
+      "maliciousTotal": 33,
+      "benignFalsePositive": 2,
+      "benignTotal": 23,
+      "unknown": 8,
+      "incompleteUnknown": 3
+    }
+  ],
+  "storedExperimentTotals": {
+    "textCalls": 201,
+    "visionCalls": 183,
+    "promptTokens": 444570,
+    "completionTokens": 841118,
+    "wallMs": 8579132
+  },
+  "realModelRunsPerformed": 0,
+  "officialExperimentFilesOverwritten": 0,
+  "publicDeploymentPerformed": false,
+  "imageEvidence": [
+    {
+      "file": "images/workbench-desktop.png",
+      "bytes": 207026,
+      "sha256": "7e1587853f1858eeae90c121bebb5c8ac78cdc0786ab83a8a684619e37e27131"
+    },
+    {
+      "file": "images/workbench-mobile.png",
+      "bytes": 211527,
+      "sha256": "0f0077ad1726a7ed2cd196a4313cb23b61fff3f921b9d578b2af8a4e24059d6d"
+    },
+    {
+      "file": "images/text-race-desktop.png",
+      "bytes": 112898,
+      "sha256": "f5403d97a8491bda504db36007ab39e245e81492c8415aff59a06dae9512b64d"
+    },
+    {
+      "file": "images/text-race-mobile.png",
+      "bytes": 104722,
+      "sha256": "1b535c334d28f1cf7e69d78364cf97ed9fc3f7943cab6ed68e07e51582e20846"
+    },
+    {
+      "file": "images/docker-cjk.png",
+      "bytes": 4295,
+      "sha256": "c1b57e1a919d2a3dceb84bacdba03129cefdf6a7d4ec9ce197fc6ab10af6474b"
+    }
+  ],
+  "unverified": [
+    "real model behavior and cost",
+    "Windows runtime",
+    "Vercel/public reachability",
+    "untrusted-target sandbox/egress/DNS binding",
+    "independent semantic finding support",
+    "stress and complete CVE/license audit"
+  ],
+  "completedDate": "2026-10-31"
+}

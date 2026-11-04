@@ -1,0 +1,103 @@
+VeriPage audit evidence | 2026-10-30 | main@19b2ee9ee3d28d91fbe3034615d7b8916d8887cc
+
+Summary: 289 existing smoke assertions, 32 browser assertions, 9 no-network container checks. See REPORT.md for limitations.
+
+=== static-status.tsv ===
+typegen	0
+typescript	0
+eslint	0
+
+=== smoke-status.tsv ===
+Columns: suite, exit code, number of output lines starting with PASS (not always the assertion count).
+evidence	0	5
+prompts	0	25
+url-static	0	29
+access-guard	0	17
+knowledge	0	23
+m1-regressions	0	23
+scan-sse	0	13
+artifact-store	0	30
+evidence-relations	0	0
+m4-knowledge	0	55
+text-line	0	64
+
+=== browser-status.tsv ===
+workbench	0
+text	0
+
+=== reproduce-text.log ===
+REPRO raw-PII-in-model-request {"status":200,"modelBodyContainsRawPhone":true,"modelBodyContainsRawEmail":true,"returnedRedactionContainsRawPhone":false,"returnedRedactionContainsRawEmail":false}
+REPRO text-request-cancellation-not-forwarded {"requestAlreadyAborted":true,"modelCallsAfterAbort":1,"forwardedSignalPresent":false,"status":200}
+REPRO email-containing-phone-overlap {"redactedText":"alice+[手机号已脱敏]@example.com","counts":{"id-card":0,"phone":1,"bank-card":0,"email":0},"hitTypes":["phone"]}
+
+=== reproduce-evidence-complete.log ===
+REPRO model-input-vs-retained-evidence {"modelInputContainsMarker":true,"savedExcerptContainsMarker":false,"findingRetained":true,"schemaValidationPasses":true,"inputLength":1258,"excerptLength":1206}
+REPRO third-party-hostname-contract {"fullHostnameIsKnown":true,"registrableDomainIsKnown":false,"reportedQueryDomain":"jsdelivr.net","reportSaysNotRecorded":true}
+REPRO knowledge-provenance-grade {"findingKind":"observed_fact","supportingEvidenceType":"knowledge","schemaValidationPasses":true}
+REPRO URL-token-not-minimized {"modelInputContainsUrlToken":true,"reportContainsUrlToken":true}
+REPRO fractional-positive-token-budget {"configured":"0.5","actualMaxTokens":0}
+REPRO duplicate-static-evidence-ids {"url":"https://jd.com/","duplicatedIds":["levenshtein:qq.com"],"validatorErrors":["证据 id 重复: levenshtein:qq.com","证据 id 重复: levenshtein:qq.com"],"validateCoverage":"failed"}
+
+=== reproduce-experiments-final.log ===
+VERIFIED committed-experiment {"group":"A","records":61,"uniqueSamples":61,"maliciousDetected":10,"maliciousTotal":33,"benignFalsePositives":4,"benignTotal":23,"unknown":0,"incompleteUnknown":0}
+VERIFIED committed-experiment {"group":"B","records":61,"uniqueSamples":61,"maliciousDetected":21,"maliciousTotal":33,"benignFalsePositives":9,"benignTotal":23,"unknown":16,"incompleteUnknown":2}
+VERIFIED committed-experiment {"group":"C","records":61,"uniqueSamples":61,"maliciousDetected":29,"maliciousTotal":33,"benignFalsePositives":0,"benignTotal":23,"unknown":6,"incompleteUnknown":2}
+VERIFIED committed-experiment {"group":"C-no-vision","records":61,"uniqueSamples":61,"maliciousDetected":29,"maliciousTotal":33,"benignFalsePositives":1,"benignTotal":23,"unknown":8,"incompleteUnknown":3}
+VERIFIED committed-experiment {"group":"C-no-kb","records":61,"uniqueSamples":61,"maliciousDetected":30,"maliciousTotal":33,"benignFalsePositives":2,"benignTotal":23,"unknown":8,"incompleteUnknown":3}
+REPRO result-path-collision {"arguments":"--dir .","wouldTruncate":"results/C.jsonl","writesActuallyPerformed":0}
+REPRO result-path-collision {"arguments":"--dir trial --out ../A","wouldTruncate":"results/A.jsonl","writesActuallyPerformed":0}
+REPRO tag-points-to-formal-results {"tag":".","acceptedByActualGuard":true}
+REPRO tag-points-to-formal-results {"tag":"./","acceptedByActualGuard":true}
+REPRO unvalidated-runner-arguments {"missingTagValueFallsBack":true,"badLimitIsNaN":true,"actualSelectedSampleCount":61,"badMaxTextDisablesBudgetComparison":true}
+VERIFIED report-generator-control {"matchesCommittedReport":true,"writesActuallyPerformed":0}
+REPRO report-generator-error-row {"error":"Cannot read properties of undefined (reading 'join')","writesActuallyPerformed":0}
+REPRO report-mixes-rows-and-stale-summary {"acceptsDuplicateSample":true,"includesUnknown6of62":true,"stillIncludesCost61of61":true,"writesActuallyPerformed":0}
+VERIFIED untested-counterfactual {"originalFalsePositives":9,"artifactExplained":7,"originalBenignDenominator":23,"reportAdjustedNumerator":2,"denominatorIfRemovingThoseSamples":16}
+REPRO injection-negation-is-misclassified {"negatedComplianceMatches":true}
+
+=== reproduce-smoke-isolation.log ===
+AUDIT_BLOCKED_UNSTUBBED_FETCH=1
+ALL-PASS
+AUDIT_PRE_STUB_MODEL_CALLS=1
+
+=== reproduce-text-race-final.log ===
+REPRO text-response-race {"requestCount":2,"buttonDisabledDuringFirstRequest":true,"currentInputIsB":true,"finalDisplayedResultIsA":true}
+
+=== docker-runtime.log ===
+RUNTIME {"uid":0,"node":"v22.23.4","next":"16.4.3","browsersPath":"/ms-playwright","modelKeyPresent":false}
+PASS container Chromium renders a controlled no-network page and creates PNG
+PASS container GET / returns 200
+PASS container GET /scan returns 200
+PASS container GET /text returns 200
+PASS container scan rejects invalid JSON
+PASS container private-target guard yields a single unknown report without visiting it
+PASS container text route rejects missing input
+PASS container text route reports missing model config, not a fake verdict
+PASS container artifact route denies unauthenticated access
+ALL-PASS (9 container checks; no external network)
+
+=== Docker source integrity ===
+{
+  "image": "sha256:52a22f828171cbe1b6cc18c2ca817aae26d8020e0670264c441c6b5450ff9e7e",
+  "auditedCommit": "19b2ee9ee3d28d91fbe3034615d7b8916d8887cc",
+  "comparedTrackedFiles": 214,
+  "mismatches": []
+}
+
+=== Docker Chinese glyph diagnostic ===
+{
+  "chineseFontFamilies": "",
+  "viewport": {
+    "width": 800,
+    "height": 220
+  }
+}
+Actual screenshot: Chinese text renders as missing-glyph boxes; see images/docker-cjk.png.
+
+=== assertion-count clarification ===
+The evidence-relations script prints one ALL-PASS (5 evidence relationship assertions) line, not five PASS-prefixed lines. Therefore the raw PASS-line extractor reports 0 for that script; its actual assertion count is 5. Raw PASS-prefixed lines sum to 284; including these 5 assertions gives 289, as used in REPORT.md and verification.json.
+Original evidence-relations output:
+ALL-PASS (5 evidence relationship assertions)
+
+=== resource cleanup ===
+All audit containers were run with --rm; no audit-labeled containers remained. The verified task-owned image tag veripage-audit:19b2ee9 and image sha256:52a22f828171cbe1b6cc18c2ca817aae26d8020e0670264c441c6b5450ff9e7e were deleted after runtime, CJK and 214-file source-integrity checks. No global Docker cache prune was performed.
