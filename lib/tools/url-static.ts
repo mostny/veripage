@@ -127,6 +127,20 @@ export function analyzeUrlStatic(input: string): UrlStaticReport {
   const registrableDomain = getRegistrableDomain(host);
   const findings: StaticFinding[] = [];
 
+  /**
+   * 同 id 视为「同一事实」，只保留首条（审计 F11）：
+   * 品牌表中多个品牌/官方域可能折叠到同一可注册主域（微信 weixin.qq.com 与
+   * 腾讯 qq.com → qq.com），对 `https://jd.com/` 会各自生成一条
+   * `levenshtein:qq.com`——id 相同即同一「主域相似」事实，重复入池会被
+   * validateSnapshot 判「证据 id 重复」而破坏整份报告。
+   */
+  const seenIds = new Set<string>();
+  const pushFinding = (finding: StaticFinding): void => {
+    if (seenIds.has(finding.id)) return;
+    seenIds.add(finding.id);
+    findings.push(finding);
+  };
+
   // 规则 1：品牌域编辑距离（如 ta0bao.com ↔ taobao.com）与子域伪装
   for (const brand of KNOWN_BRANDS) {
     for (const official of brand.domains) {
@@ -134,7 +148,7 @@ export function analyzeUrlStatic(input: string): UrlStaticReport {
       // 1a. 主域整体编辑距离 1~2 → 高疑似仿冒
       const dist = levenshtein(registrableDomain, officialRegistrable);
       if (dist >= 1 && dist <= 2 && registrableDomain !== officialRegistrable) {
-        findings.push({
+        pushFinding({
           id: `levenshtein:${officialRegistrable}`,
           level: "fact",
           title: `主域与 ${brand.name} 官方域高度相似`,
@@ -148,7 +162,7 @@ export function analyzeUrlStatic(input: string): UrlStaticReport {
         host.startsWith(official + ".") ||
         host.includes("." + official + ".");
       if (appearsAsLabel && registrableDomain !== officialRegistrable) {
-        findings.push({
+        pushFinding({
           id: `subdomain-disguise:${officialRegistrable}`,
           level: "fact",
           title: `疑似子域伪装：包含 ${brand.name} 域名但真实主域不同`,
@@ -161,11 +175,11 @@ export function analyzeUrlStatic(input: string): UrlStaticReport {
 
   // 规则 2：同形字符 / punycode
   const homoglyph = checkHomoglyph(host);
-  if (homoglyph) findings.push(homoglyph);
+  if (homoglyph) pushFinding(homoglyph);
 
   // 规则 3：短链接 → 必须展开（闸门②）
   if (SHORTENERS.has(registrableDomain)) {
-    findings.push({
+    pushFinding({
       id: "shortener",
       level: "fact",
       title: "短链接域名，最终目标不可见",
@@ -176,7 +190,7 @@ export function analyzeUrlStatic(input: string): UrlStaticReport {
 
   // 规则 4：主机名为裸 IP
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
-    findings.push({
+    pushFinding({
       id: "ip-literal",
       level: "fact",
       title: "使用裸 IP 地址而非域名",
@@ -190,7 +204,7 @@ export function analyzeUrlStatic(input: string): UrlStaticReport {
   const payloadPatterns = ["<script", "%3cscript", "onerror=", "javascript:", "eval(", "document.cookie"];
   const hit = payloadPatterns.find((p) => qs.includes(p));
   if (hit) {
-    findings.push({
+    pushFinding({
       id: "payload-pattern",
       level: "fact",
       title: "URL 参数中包含可疑脚本注入特征",
@@ -201,7 +215,7 @@ export function analyzeUrlStatic(input: string): UrlStaticReport {
 
   // 规则 6：弱信号——非 HTTPS / 廉价 TLD
   if (url.protocol !== "https:") {
-    findings.push({
+    pushFinding({
       id: "no-https",
       level: "fact",
       title: "未使用 HTTPS",
@@ -211,7 +225,7 @@ export function analyzeUrlStatic(input: string): UrlStaticReport {
   }
   const tld = registrableDomain.split(".").pop() ?? "";
   if (CHEAP_TLDS.has(tld)) {
-    findings.push({
+    pushFinding({
       id: "cheap-tld",
       level: "fact",
       title: `使用低成本 TLD .${tld}`,
