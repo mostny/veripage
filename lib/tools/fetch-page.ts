@@ -12,6 +12,8 @@
  * 安全纪律：
  *   - 导航前先过 S0，被拒则直接返回 blocked，不启动浏览器
  *   - 浏览器内所有子资源同样过 S0（route 拦截 + DNS 重绑定缓解，解析结果缓存 60s）
+ *   - 默认保留 Chromium OS 级沙箱（审计 F03）；仅 VERIPAGE_BROWSER_NO_SANDBOX=1
+ *     显式逃生阀可关，风险边界见 buildChromiumLaunchPlan
  *   - 每次调用独立 browser context，无 cookie / 存储残留，用完即关
  *   - 失败只降级不抛异常：返回 { blocked: false, error, partialEvidence }
  */
@@ -133,6 +135,46 @@ const MAX_REDIRECTS = 10;
 const TOTAL_TIMEOUT_MS = 20_000;
 const MAX_HTML_CHARS = 50_000;
 const MAX_TEXT_CHARS = 3_000;
+
+// ---------------------------------------------------------------------------
+// Chromium 启动参数（审计 F03：默认保留浏览器沙箱）
+// ---------------------------------------------------------------------------
+
+/** 取证浏览器沙箱逃生阀的环境变量名（默认不设＝保留沙箱） */
+export const BROWSER_NO_SANDBOX_ENV = "VERIPAGE_BROWSER_NO_SANDBOX";
+
+/** chromium.launch 参数（抽成纯数据，便于不起真浏览器的函数级单测） */
+export interface ChromiumLaunchPlan {
+  headless: true;
+  /**
+   * Playwright 的 chromiumSandbox 默认是 false——即使我们不传 --no-sandbox，
+   * 不显式置 true 时 Playwright 仍会替我们把沙箱关掉。这里必须显式声明。
+   */
+  chromiumSandbox: boolean;
+  args: string[];
+}
+
+/**
+ * 构造取证浏览器的 launch 参数（审计 F03）。
+ *
+ * 默认（未设 VERIPAGE_BROWSER_NO_SANDBOX 或值不是严格的 "1"）：
+ * chromiumSandbox=true 且 args 不含 --no-sandbox——Chromium 以 OS 级沙箱
+ * 运行，目标页的渲染进程与宿主进程之间保持内核隔离。
+ *
+ * 逃生阀（VERIPAGE_BROWSER_NO_SANDBOX=1）：仅限个别内核未开 unprivileged
+ * user namespace（或等效机制）、Chromium 沙箱确实无法初始化的环境（例如
+ * 部分加固内核容器或管理员 Windows 会话）。风险边界：开启后目标页一旦
+ * 利用浏览器/内核漏洞即可越出渲染进程，取证浏览器将只靠「独立 context +
+ * S0 子资源拦截」这类应用层边界兜底——设置它之前必须确认运行环境已有
+ * 虚拟机/独立容器等更强的外层隔离，且永远不该为了「跑得起来」默认开启。
+ * Docker 镜像以非 root 用户运行，user namespace 沙箱可用，不需要也不应
+ * 设置该变量。
+ */
+export function buildChromiumLaunchPlan(noSandboxEnv: string | undefined): ChromiumLaunchPlan {
+  return noSandboxEnv === "1"
+    ? { headless: true, chromiumSandbox: false, args: ["--no-sandbox"] }
+    : { headless: true, chromiumSandbox: true, args: [] };
+}
 
 // ---------------------------------------------------------------------------
 // 内部工具
@@ -272,11 +314,9 @@ export async function fetchPage(rawUrl: string, options: FetchPageOptions = {}):
   options.signal?.addEventListener("abort", closeOnAbort, { once: true });
 
   try {
-    browser = await chromium.launch({
-      headless: true,
-      // Windows 下部分环境（管理员 / 容器）沙箱初始化会失败
-      args: ["--no-sandbox"],
-    });
+    // 审计 F03：默认保留 Chromium OS 级沙箱（本地开发 / 容器 / 非 root 均适用）；
+    // 仅 VERIPAGE_BROWSER_NO_SANDBOX=1 显式逃生阀可关（风险边界见函数注释）
+    browser = await chromium.launch(buildChromiumLaunchPlan(process.env[BROWSER_NO_SANDBOX_ENV]));
     options.signal?.throwIfAborted();
     // 每次调用独立 context：无 cookie / 存储 / 缓存残留，探测之间互不影响
     context = await browser.newContext({
