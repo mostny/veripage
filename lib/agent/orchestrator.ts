@@ -87,14 +87,33 @@ const RETRY_HINT = "上一次输出无法解析为合法 JSON，请严格只输�
  * reasoning 再产出 content，2000 预算会被 reasoning 吃光导致 JSON 截断
  * （W3 实验 6 样本试跑实测 4/6 finish=length，见 eval/experiments 报告 0.5 节）。
  * 默认 6000（实验全量验证可用），可用 VERIPAGE_ANALYZER_MAX_TOKENS 覆盖；
- * 非法/非正值回落默认，不因配置错误让判定悄悄截断。
+ * 只接受有限正整数，非法值回落默认并打明确警告（审计 F16），不因配置
+ * 错误让判定悄悄截断（旧实现的「正数检查 + 取整」会让 0.5 变成 0 传模型）。
  */
 const DEFAULT_ANALYZER_MAX_TOKENS = 6000;
+
+/**
+ * 解析 VERIPAGE_ANALYZER_MAX_TOKENS（审计 F16）。
+ * 只接受有限正整数（字符串或数字）；0.5 / abc / -1 / 0 等非法值一律回落
+ * 默认 6000，并通过 warn 回调打一条明确警告，绝不静默。
+ * 导出供 eval/deploy-config.smoke.ts 做函数级单测。
+ */
+export function parseAnalyzerMaxTokens(
+  raw: string | number | undefined,
+  warn: (message: string) => void = (message) => console.warn(`[veripage] ${message}`),
+): number {
+  if (raw === undefined || raw === "") return DEFAULT_ANALYZER_MAX_TOKENS;
+  const parsed = typeof raw === "number" ? raw : Number(raw);
+  if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  warn(
+    `配置警告：VERIPAGE_ANALYZER_MAX_TOKENS=${JSON.stringify(String(raw))} 不是有限正整数，` +
+      `已回落默认 ${DEFAULT_ANALYZER_MAX_TOKENS}（正确示例：VERIPAGE_ANALYZER_MAX_TOKENS=6000）`,
+  );
+  return DEFAULT_ANALYZER_MAX_TOKENS;
+}
+
 function analyzerMaxTokens(): number {
-  const raw = process.env.VERIPAGE_ANALYZER_MAX_TOKENS;
-  if (!raw) return DEFAULT_ANALYZER_MAX_TOKENS;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_ANALYZER_MAX_TOKENS;
+  return parseAnalyzerMaxTokens(process.env.VERIPAGE_ANALYZER_MAX_TOKENS);
 }
 
 /** 不包含模型先前的自由文本；提示只要求重新核对可信证据清单并删除无依据结论。 */
