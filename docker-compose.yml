@@ -7,10 +7,22 @@
 #
 # PLAYWRIGHT_BROWSERS_PATH 必须与 Dockerfile 构建期的值一致（/ms-playwright）：
 # 浏览器在镜像构建时装好，运行期直接复用，容器启动不联网下载。
+#
+# 隔离边界（审计 F03）：
+#   - user 与 Dockerfile 的专用低权用户 veripage 一致（uid:gid=10001），容器主进程非 root；
+#   - no-new-privileges:true 阻止容器内任何进程经 setuid/setcap/file capabilities 提权；
+#   - 不要在 .env 里设置 VERIPAGE_BROWSER_NO_SANDBOX——非 root 下 Chromium 沙箱可用，
+#     该逃生阀仅留给个别内核未开 user namespace 的特殊环境（见 lib/tools/fetch-page.ts）。
+#   - 生产建议（本轮未建立，见 README「安全边界」）：为取证浏览器配置独立的网络出口
+#     /出口代理与 DNS，使采集流量与模型调用、管理面隔离，并用实际连接记录验收。
 services:
   veripage:
     build: .
     image: veripage:latest
+    # 与 Dockerfile 的 USER veripage（uid/gid=10001）一致；显式声明防止上游镜像变更时漂移
+    user: "10001:10001"
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "3000:3000"
     env_file:
