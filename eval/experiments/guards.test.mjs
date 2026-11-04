@@ -358,9 +358,15 @@ function reportWith(overrides = {}, { missingFiles = new Set() } = {}) {
   // 控制组：从正式数据生成，逐字节等于已提交 report.md（证明只加了守卫与措辞、没动数据）
   const control = reportWith();
   assert.equal(control.writes.length, 1, "控制组只写 report.md 一个文件");
-  const committed = fs.readFileSync(path.join(RESULTS, "report.md"), "utf8");
-  assert.equal(control.writes[0].contents, committed, "生成文本必须与已提交 report.md 逐字一致");
-  ok("F12 控制组：生成器对正式数据产出与 results/report.md 逐字节一致");
+  // Windows（core.autocrlf=true）下检出的 report.md 是 CRLF，生成器产出 LF：
+  // 比较前把两边统一规范化为 LF——语义仍是逐字一致，只是换行风格不敏感
+  const committed = fs.readFileSync(path.join(RESULTS, "report.md"), "utf8").replaceAll("\r\n", "\n");
+  assert.equal(
+    control.writes[0].contents.replaceAll("\r\n", "\n"),
+    committed,
+    "生成文本必须与已提交 report.md 逐字一致（换行规范化后）",
+  );
+  ok("F12 控制组：生成器对正式数据产出与 results/report.md 逐字节一致（换行风格不敏感）");
 }
 
 function assertReportRefused(label, overrides, options) {

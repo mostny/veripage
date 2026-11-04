@@ -23,7 +23,7 @@
 |---|---|---|
 | 链接检测线（S0 边界 + 三闸门 + 证据约束报告） | ✅ main 已完整可用 | main 主线（含 M1 修复，PR #3） |
 | 知识检索线（品牌白名单 / 钓鱼案例 / SSO 合法解释） | ✅ main 已合并：知识证据进编排器 + 有界补证轮 + `versions.knowledge` | PR #7 / #11 |
-| 文本体检线（AIGC 识别 + 隐私脱敏） | ✅ main 已合并：`/text` 页 + `/api/text` + 本地正则脱敏 | PR #8 |
+| 文本体检线（AIGC 识别 + 隐私脱敏） | ✅ main 已合并：`/text` 页 + `/api/text` + 本地正则脱敏；判定带 120s 应用层总时限与取消传播（`app/api/text/route.ts` 的 `composeAigcSignal`） | PR #8 |
 | W3 对照实验（三组 + 两组消融 + 61 样本 fixture） | ✅ main 已合并：数据集 / 实验壳 / 报告 | PR #12 |
 | 复核治理线（会话隔离截图产物 + 结论 ↔ 证据联动工作台） | ✅ main 已合并：ArtifactStore + 会话隔离端点 + 双向联动工作台 | PR #5 / #6 |
 | 部署配置与本文档 | ✅ 随本 PR 合并（Vercel + Docker 双方案已备，未绑定账号） | `yan/deploy-readme` · PR #10 |
@@ -36,7 +36,7 @@
 3. **闸门② 沙箱代访**（`lib/tools/fetch-page.ts`）：Playwright 无头浏览器以一次性 context 打开目标页，采集**技术事实**级证据——完整跳转链、整页截图、可见正文、表单 action / method / 是否含密码框、第三方域脚本清单；总预算 20s，任何失败都降级为「取证不完整」而不是抛异常。
 4. **闸门③ AI 取证**（`lib/agent/orchestrator.ts`）：视觉模型看截图（在仿冒谁）+ 语义模型读 HTML（话术 / 索要行为）+ 知识库比对（合法解释 / 相似案例引用）；JSON 解析失败自动纠偏重试，两次失败输出 `unknown` 兜底。
 5. **validate 证据约束**（`lib/evidence/validate.ts`）：每条结论引用的 evidence id 必须真实存在于证据池——「JSON 可解析」不等于「通过」。
-6. **三维报告**：风险判断（high / suspicious / no_significant_risk / unknown）× 证据充分程度 × 检测覆盖（每步 completed / partial / skipped / failed + 原因），经 SSE 实时推送到前端步骤时间线。整次检测总预算 120s（`app/api/scan/route.ts:8`）。
+6. **三维报告**：风险判断（high / suspicious / no_significant_risk / unknown）× 证据充分程度 × 检测覆盖（每步 completed / partial / skipped / failed + 原因），经 SSE 实时推送到前端步骤时间线。整次检测总预算 120s（`lib/scans/handler.ts:25` 的 `TOTAL_TIMEOUT_MS`）；文本体检线同等的 120s 应用层总时限在 `app/api/text/route.ts`（`TEXT_TOTAL_TIMEOUT_MS` / `composeAigcSignal`）。
 
 ## 快速开始（本地完整版）
 
@@ -63,7 +63,8 @@ pnpm dev               # http://localhost:3000
 | `VERIPAGE_TEXT_MODEL` | 文本 / 主分析模型（当前 `step-5-preview`） |
 | `VERIPAGE_VISION_MODEL` | 视觉模型，需支持 `image_url` 输入（当前 `step-5-preview`） |
 | `VERIPAGE_PRO_MODEL` | 预留的复杂判断模型 |
-| `VERIPAGE_ANALYZER_MAX_TOKENS` | 主分析器输出预算，默认 6000（推理模型先产 reasoning，预算太小会截断 JSON） |
+| `VERIPAGE_ANALYZER_MAX_TOKENS` | 主分析器输出预算，默认 6000（推理模型先产 reasoning，预算太小会截断 JSON）；只接受**有限正整数**，非法值（如 `0.5`/`abc`）回落 6000 并打警告 |
+| `VERIPAGE_BROWSER_NO_SANDBOX` | 取证浏览器沙箱**逃生阀**，默认不设＝保留 Chromium OS 级沙箱。仅个别内核未开 user namespace、沙箱无法初始化的环境才设 `1`；开启即放弃该层隔离，见下文「安全边界」 |
 
 端点切换记录与历史实测见 [docs/model-notes.md](docs/model-notes.md)。
 
@@ -95,17 +96,35 @@ cp .env.example .env          # 填 Key
 docker compose up -d --build  # http://localhost:3000
 ```
 
-`Dockerfile` 已装齐 Playwright chromium 的系统依赖，浏览器二进制固定在 `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`，容器启动不联网下载；三闸门全链路可用，行为与本地开发一致。代价：需要一台常驻机器（小型 VPS 即可）。
+`Dockerfile` 已装齐 Playwright chromium 的系统依赖与 Noto CJK 中文字体（服务端取证截图需要中文字形，审计 F17），浏览器二进制固定在 `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`，容器启动不联网下载；容器以专用非 root 用户 `veripage`（uid/gid=10001）运行并叠加 `no-new-privileges:true`（审计 F03）；三闸门全链路可用，行为与本地开发一致。代价：需要一台常驻机器（小型 VPS 即可）。
 
 ### 方案 B：Vercel（最快上线）
 
-导入仓库即可构建。`vercel.json` 已配置：
+导入仓库即可构建，**但仅导入仓库不会获得真实模型能力**——部署后必须在项目 Settings → Environment Variables 配置 `VERIPAGE_AGNES_BASE_URL` / `VERIPAGE_AGNES_API_KEY`（按需再加 `VERIPAGE_TEXT_MODEL` / `VERIPAGE_VISION_MODEL` / `VERIPAGE_ANALYZER_MAX_TOKENS`，完整清单见 `.env.example`），否则闸门③的模型调用会明确失败（coverage 如实显示失败步骤，不返回假装完整的报告）。`vercel.json` 已配置：
 
 - `regions: ["hkg1"]` —— 距国内评委最近的区域，且可正常访问模型端点（若套餐不支持自定义函数区域，Vercel 会忽略该字段用默认区域，不影响功能、只影响延迟）；
-- `functions["app/api/scan/route.ts"].maxDuration = 120` —— 与 SSE 总预算一致（`app/api/scan/route.ts:8`）；
+- `functions["app/api/scan/route.ts"].maxDuration = 120` —— 与 SSE 总预算一致（`lib/scans/handler.ts:25` 的 `TOTAL_TIMEOUT_MS`）；
 - Node 版本经 `package.json` 的 `engines.node` 固定为 22.x（Vercel 的 `vercel.json` schema 已不支持 `nodeVersion` 字段，2026-10-30 核对 openapi.vercel.sh/vercel.json）。
 
 **取舍（如实说明）**：Vercel 函数是 serverless 环境，闸门②的 Playwright **没有开箱支持**——要么引入 `@sparticuz/chromium` 一类 Lambda 浏览器方案（需要改 `lib/tools/fetch-page.ts` 的引入方式，本仓库未做此适配），要么接受闸门②降级：扫描以「取证不完整」如实收尾（coverage 维度可见），不会给出假装完整的报告。另外各套餐对函数时长有上限，若低于 120s，平台会在上限处切断连接，前端显示「检测未完成」而不是假结果。**要完整链路演示，请用方案 A。**
+
+### 安全边界（如实分层，审计 2026-10-30 F03）
+
+对「真实不可信公网目标」的执行隔离，当前状态如实分层如下：
+
+**已建立：**
+
+- 容器以专用非 root 用户（`veripage`，uid/gid=10001）运行，`docker-compose.yml` 叠加 `security_opt: no-new-privileges:true`（进程内不得经 setuid/setcap 提权）；
+- Chromium 取证浏览器**默认保留 OS 级沙箱**（`lib/tools/fetch-page.ts` 显式 `chromiumSandbox: true`，不再无条件 `--no-sandbox`；仅 `VERIPAGE_BROWSER_NO_SANDBOX=1` 显式逃生阀可关，供个别内核未开 user namespace 的环境使用，开启即放弃该层隔离）；
+- S0 目标准入校验：私网 / 链路本地 / 云元数据地址拒绝，浏览器内所有子资源同样过 S0（DNS 重绑定缓解，解析结果缓存 60s）。
+
+**未建立（对公网开放的前置条件，本轮未做、不做虚报）：**
+
+- 采集进程与模型凭据的完全分离——取证浏览器目前仍由持有模型配置的服务进程直接启动；
+- 连接级 DNS / 网络出口隔离——Node 侧 DNS 检查放行后由 Chromium 自行发起连接，60s 解析缓存不等于固定实际连接 IP（生产建议独立网络出口/出口代理，并用实际连接记录验收）；
+- 弹窗 / 下载 / Service Worker 的全量拦截。
+
+结论：当前部署适合受控 fixture 演示与内部试用；在上述「未建立」项补齐并经验收之前，**不对外提供「隔离取证」性质的公开检测服务**，也不以该词作安全保证。
 
 ## 架构（Mermaid）
 

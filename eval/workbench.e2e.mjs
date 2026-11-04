@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { chromium } from "playwright";
@@ -23,14 +23,24 @@ const server = spawn(
   { cwd: process.cwd(), env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" }, detached: true, stdio: ["ignore", "pipe", "pipe"] },
 );
 
+/** Windows 上没有进程组信号：组杀失败后退回按 pid 杀，再不行用 taskkill /T /F 杀整树（对齐 eval/text-page.e2e.mjs，审计 F16） */
 async function stopServer() {
   if (server.exitCode !== null) return;
-  try { process.kill(-server.pid, "SIGTERM"); } catch {}
+  const pid = server.pid;
+  try { process.kill(-pid, "SIGTERM"); } catch {}
+  try { process.kill(pid, "SIGTERM"); } catch {}
   await Promise.race([
     once(server, "exit").catch(() => undefined),
     new Promise((resolve) => { const timer = setTimeout(resolve, 5000); timer.unref(); }),
   ]);
-  if (server.exitCode === null) { try { process.kill(-server.pid, "SIGKILL"); } catch {} }
+  if (server.exitCode === null) {
+    if (process.platform === "win32") {
+      try { execFileSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" }); } catch {}
+    } else {
+      try { process.kill(-pid, "SIGKILL"); } catch {}
+      try { process.kill(pid, "SIGKILL"); } catch {}
+    }
+  }
 }
 
 let serverOutput = "";
