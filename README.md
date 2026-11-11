@@ -3,6 +3,8 @@
 > 核验网页「声称的身份」与「实际行为」是否一致的 AI 反钓鱼检测台
 > 第九届传智杯 AI WEB 网页开发挑战赛 · 参赛作品 · [mostny/veripage](https://github.com/mostny/veripage)
 
+📖 **快速了解项目**：[项目介绍书（简明通俗版）](docs/项目介绍书.md)
+
 **演示链接**：（部署后补充 —— 仓库已备好 Vercel 与 Docker 两套部署配置，见下文「部署」）
 
 ## 一句话定位
