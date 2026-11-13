@@ -46,14 +46,20 @@ interface BrandsFile { version: string; verifiedAt: string; description: string;
 interface SsoFile { version: string; verifiedAt: string; description: string; entries: SsoEntry[] }
 interface CasesFile { version: string; verifiedAt: string; description: string; entries: PhishCase[] }
 
-function loadJson<T>(file: string): T {
-  const url = new URL(`../../knowledge/${file}`, import.meta.url);
+/**
+ * 每个 JSON 必须用「字面量 new URL」独立加载。Turbopack 会把动态模板
+ * new URL(`../../knowledge/${file}`, import.meta.url) 整体折叠成第一个匹配的
+ * 静态资源（实测 dev server 里三个文件全部被替换成 brands.json），导致
+ * ssoFile/casesFile 实际读到品牌白名单——lookupThirdParty 迭代 entry.domains
+ * 直接 TypeError（Node 原生跑冒烟/实验不走打包路径，测不出来）。
+ */
+function loadJson<T>(url: URL): T {
   return JSON.parse(readFileSync(url, "utf8")) as T;
 }
 
-const brandsFile = loadJson<BrandsFile>("brands.json");
-const ssoFile = loadJson<SsoFile>("sso-providers.json");
-const casesFile = loadJson<CasesFile>("phish-cases.json");
+const brandsFile = loadJson<BrandsFile>(new URL("../../knowledge/brands.json", import.meta.url));
+const ssoFile = loadJson<SsoFile>(new URL("../../knowledge/sso-providers.json", import.meta.url));
+const casesFile = loadJson<CasesFile>(new URL("../../knowledge/phish-cases.json", import.meta.url));
 
 /** 知识库聚合版本号——进入 CaseSnapshot.versions.knowledge，保证实验可复现 */
 export const KNOWLEDGE_VERSION = `${brandsFile.version}+${ssoFile.version}+${casesFile.version}`;
