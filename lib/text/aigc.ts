@@ -57,6 +57,8 @@ export interface DetectAigcOptions {
   chat?: ChatFn;
   model?: string;
   signal?: AbortSignal;
+  /** 输出预算；默认读 VERIPAGE_TEXT_MAX_TOKENS（缺省 6000，推理模型 reasoning 会先吃预算） */
+  maxTokens?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +124,24 @@ function deriveConclusion(isAigc: boolean, confidence: number): AigcConclusion {
 // 主入口
 // ---------------------------------------------------------------------------
 
+/** 推理模型的 reasoning 会先消耗输出预算：800 下长文本实测 finish=length、content 为空（#14 同款）。 */
+const DEFAULT_AIGC_MAX_TOKENS = 6000;
+
+/** 与 parseAnalyzerMaxTokens 同款纪律：只接受有限正整数，否则回落默认并明确警告 */
+export function parseAigcMaxTokens(
+  raw: string | number | undefined,
+  warn: (message: string) => void = (message) => console.warn(`[veripage] ${message}`),
+): number {
+  if (raw === undefined || raw === "") return DEFAULT_AIGC_MAX_TOKENS;
+  const parsed = typeof raw === "number" ? raw : Number(raw);
+  if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  warn(
+    `配置警告：VERIPAGE_TEXT_MAX_TOKENS=${JSON.stringify(String(raw))} 不是有限正整数，` +
+      `已回落默认 ${DEFAULT_AIGC_MAX_TOKENS}（正确示例：VERIPAGE_TEXT_MAX_TOKENS=6000）`,
+  );
+  return DEFAULT_AIGC_MAX_TOKENS;
+}
+
 /**
  * 判定一段文本是否具有 AI 生成特征。
  * 两次解析失败抛 AigcUnavailableError（路由 → 502），绝不返回默认「人类所写」。
@@ -133,6 +153,7 @@ export async function detectAigc(text: string, opts: DetectAigcOptions = {}): Pr
     { role: "user", content: buildTextAnalysisUserMessage(text) },
   ];
   let repaired = false;
+  const maxTokens = opts.maxTokens ?? parseAigcMaxTokens(process.env.VERIPAGE_TEXT_MAX_TOKENS);
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     opts.signal?.throwIfAborted();
@@ -140,7 +161,7 @@ export async function detectAigc(text: string, opts: DetectAigcOptions = {}): Pr
     try {
       const res = await chatFn(messages, {
         temperature: 0.2,
-        maxTokens: 800,
+        maxTokens,
         model: opts.model,
         signal: opts.signal,
       });

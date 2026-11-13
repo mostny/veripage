@@ -23,6 +23,7 @@ import {
   AigcUnavailableError,
   CONFIDENCE_FLOOR,
   detectAigc,
+  parseAigcMaxTokens,
   parseAigcVerdict,
   type ChatFn,
 } from "../lib/text/aigc.ts";
@@ -51,6 +52,7 @@ const realFetch = globalThis.fetch;
 const savedBase = process.env.VERIPAGE_AGNES_BASE_URL;
 const savedKey = process.env.VERIPAGE_AGNES_API_KEY;
 const savedModel = process.env.VERIPAGE_TEXT_MODEL;
+const savedMaxTokens = process.env.VERIPAGE_TEXT_MAX_TOKENS;
 // 假端点 + 假 Key：即使桩失效也只会连本地拒绝端口，不外泄任何真实凭据
 process.env.VERIPAGE_AGNES_BASE_URL = "http://127.0.0.1:1/v1";
 process.env.VERIPAGE_AGNES_API_KEY = "smoke-fake-key-not-a-real-credential";
@@ -261,6 +263,28 @@ try {
     check("一次成功：字段与结论", v.isAigc === true && v.confidence === 0.82 && v.conclusion === "likely_aigc" && v.repaired === false && v.caveats.length === 1);
     check("一次成功：只调用一次", calls.length === 1);
     check("一次成功：带提示词版本", v.promptVersion === TEXT_PROMPT_VERSION);
+  }
+
+  {
+    // 输出预算纪律（推理模型 reasoning 先吃预算：800 实测 finish=length、content 为空）
+    const warns: string[] = [];
+    check(
+      "预算解析：非法值回落默认 6000 且警告",
+      parseAigcMaxTokens("0.5", (m) => warns.push(m)) === 6000 &&
+        parseAigcMaxTokens("abc", () => undefined) === 6000 &&
+        parseAigcMaxTokens(-1, () => undefined) === 6000 &&
+        parseAigcMaxTokens(0, () => undefined) === 6000 &&
+        warns.length === 1,
+    );
+    check("预算解析：显式值原样通过", parseAigcMaxTokens("8000", () => undefined) === 8000 && parseAigcMaxTokens(undefined, () => undefined) === 6000);
+    const seenMaxTokens: number[] = [];
+    const stub: ChatFn = async (_messages, options) => {
+      seenMaxTokens.push(options?.maxTokens ?? Number.NaN);
+      return { content: GOOD_JSON, toolCalls: [] };
+    };
+    delete process.env.VERIPAGE_TEXT_MAX_TOKENS;
+    await detectAigc("一段文本", { chat: stub });
+    check("预算默认：未配置时调用带 6000", seenMaxTokens.length === 1 && seenMaxTokens[0] === 6000);
   }
 
   {
@@ -479,6 +503,8 @@ try {
   else process.env.VERIPAGE_AGNES_API_KEY = savedKey;
   if (savedModel === undefined) delete process.env.VERIPAGE_TEXT_MODEL;
   else process.env.VERIPAGE_TEXT_MODEL = savedModel;
+  if (savedMaxTokens === undefined) delete process.env.VERIPAGE_TEXT_MAX_TOKENS;
+  else process.env.VERIPAGE_TEXT_MAX_TOKENS = savedMaxTokens;
 }
 
 console.log(fail === 0 ? "ALL-PASS" : `FAIL（${fail} 例未过）`);
