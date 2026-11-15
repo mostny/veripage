@@ -152,6 +152,8 @@ export interface ChromiumLaunchPlan {
    */
   chromiumSandbox: boolean;
   args: string[];
+  /** The browser does not receive application/model/session credentials from its parent. */
+  env: Record<string, string>;
 }
 
 /**
@@ -170,10 +172,18 @@ export interface ChromiumLaunchPlan {
  * Docker 镜像以非 root 用户运行，user namespace 沙箱可用，不需要也不应
  * 设置该变量。
  */
-export function buildChromiumLaunchPlan(noSandboxEnv: string | undefined): ChromiumLaunchPlan {
-  return noSandboxEnv === "1"
+export function buildChromiumLaunchPlan(
+  noSandboxEnv: string | undefined,
+  parentEnv: Readonly<Record<string, string | undefined>> = process.env,
+): ChromiumLaunchPlan {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(parentEnv)) {
+    if (value !== undefined && !name.startsWith("VERIPAGE_") && name !== "BWS_ACCESS_TOKEN") env[name] = value;
+  }
+  const plan: Pick<ChromiumLaunchPlan, "headless" | "chromiumSandbox" | "args"> = noSandboxEnv === "1"
     ? { headless: true, chromiumSandbox: false, args: ["--no-sandbox"] }
     : { headless: true, chromiumSandbox: true, args: [] };
+  return { ...plan, env };
 }
 
 // ---------------------------------------------------------------------------

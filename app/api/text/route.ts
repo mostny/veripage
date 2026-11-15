@@ -7,7 +7,7 @@
  * - 脱敏是「观察事实」级：本地正则、确定性输出；命中清单只含类型与位置区间
  * - 不声称删除任何数据：脱敏只发生在返回给用户的文本里
  *
- * 隐私最小化（审计 F01）：默认只把「本地脱敏后的文本」传给模型，原文不出本机；
+ * 隐私最小化（审计 F01）：原文先提交本站服务器处理，默认仅将服务端脱敏副本传给模型；
  * 请求体显式携带 allowRawInput: true 时才传原文（知情选择，路由照常返回）。
  *
  * 取消与时限（审计 F06）：组合 request.signal（客户端断开即中止）与
@@ -18,9 +18,11 @@
 import { chat } from "../../../lib/models.ts";
 import { AigcUnavailableError, detectAigc } from "../../../lib/text/aigc.ts";
 import { redactPii } from "../../../lib/text/redact.ts";
+import { authorizeReviewerRequest } from "../../../lib/auth/reviewer.ts";
+import { MAX_TEXT_LENGTH } from "../../../lib/text/constants.ts";
 
 /** 入参长度上限（任务书 §2：如 20000 字符） */
-export const MAX_TEXT_LENGTH = 20000;
+export { MAX_TEXT_LENGTH } from "../../../lib/text/constants.ts";
 
 /** 单次文本检测的应用层总时限，与扫描线 lib/scans/handler.ts 的 TOTAL_TIMEOUT_MS 对齐 */
 export const TEXT_TOTAL_TIMEOUT_MS = 120_000;
@@ -32,6 +34,8 @@ function composeAigcSignal(request: Request): AbortSignal {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const denied = await authorizeReviewerRequest(request);
+  if (denied) return denied;
   let body: unknown;
   try {
     body = await request.json();

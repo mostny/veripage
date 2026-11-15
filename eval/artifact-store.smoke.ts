@@ -12,6 +12,10 @@ import type { FetchPageResult } from "../lib/tools/fetch-page.ts";
 import type { ChatResult } from "../lib/models.ts";
 import { GET as getArtifact } from "../app/api/scans/[id]/artifacts/[artifactId]/route.ts";
 import { POST as createScan } from "../app/api/scan/route.ts";
+import { installReviewerFixture } from "./reviewer-fixture.ts";
+
+const reviewer = await installReviewerFixture();
+const withReviewer = (cookie = "") => `${reviewer.cookie}; ${cookie}`;
 
 const onePixelPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -77,7 +81,7 @@ const metadata = { mediaType: "image/png" as const, width: 1, height: 1 };
   check("cookie Secure attribute follows the app origin, not the scanned target URL", /; Secure/i.test(fullSetCookie) === (process.env.NODE_ENV === "production"));
   check("session token stays out of SSE body", Boolean(cookieHeader) && !body.includes(cookieHeader.split("=").slice(1).join("=")));
   const retrieval = await getArtifact(
-    new Request(`http://veripage.local/api/scans/${taskId}/artifacts/${artifactId}`, { headers: { cookie: cookieHeader } }),
+    new Request(`http://veripage.local/api/scans/${taskId}/artifacts/${artifactId}`, { headers: { cookie: withReviewer(cookieHeader) } }),
     { params: Promise.resolve({ id: taskId, artifactId }) },
   );
   check("SSE session cookie retrieves the exact stored artifact end-to-end", retrieval.status === 200 && Buffer.compare(Buffer.from(await retrieval.arrayBuffer()), onePixelPng) === 0);
@@ -117,7 +121,7 @@ async function abandonedScan(kind: "runner-failure" | "timeout" | "client-cancel
   const startedLine = body.split(/\r?\n/).find((line) => line.startsWith("data: ") && line.includes('"type":"started"'));
   const taskId = startedLine ? (JSON.parse(startedLine.slice(6)) as { taskId: string }).taskId : "";
   const retrieval = await getArtifact(
-    new Request(`http://veripage.local/api/scans/${taskId}/artifacts/${savedArtifactId}`, { headers: { cookie } }),
+    new Request(`http://veripage.local/api/scans/${taskId}/artifacts/${savedArtifactId}`, { headers: { cookie: withReviewer(cookie) } }),
     { params: Promise.resolve({ id: taskId, artifactId: savedArtifactId }) },
   );
   check(`${kind} removes the saved artifact and revokes its session`, Boolean(taskId && savedArtifactId) && retrieval.status === 404);
@@ -134,7 +138,7 @@ await abandonedScan("client-cancel");
 {
   const response = await createScan(new Request("http://veripage.local/api/scan", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...reviewer.headers },
     body: JSON.stringify({ url: "http://192.168.1.1" }),
   }));
   const setCookie = response.headers.get("set-cookie") ?? "";
@@ -204,7 +208,7 @@ await abandonedScan("client-cancel");
   const saved = await artifactStore.save(taskId, session.token, onePixelPng, metadata);
   const request = (cookie?: string) => new Request(
     `http://veripage.local/api/scans/${taskId}/artifacts/${saved.id}`,
-    { headers: cookie ? { cookie } : undefined },
+    { headers: { cookie: withReviewer(cookie) } },
   );
   const context = { params: Promise.resolve({ id: taskId, artifactId: saved.id }) };
 
@@ -283,7 +287,7 @@ await abandonedScan("client-cancel");
 
   const response = await getArtifact(
     new Request(`http://veripage.local/api/scans/${taskId}/artifacts/${saved.id}`, {
-      headers: { cookie: `${artifactCookieName(taskId)}=${session.token}` },
+      headers: { cookie: withReviewer(`${artifactCookieName(taskId)}=${session.token}`) },
     }),
     { params: Promise.resolve({ id: taskId, artifactId: saved.id }) },
   );
@@ -348,4 +352,5 @@ await abandonedScan("client-cancel");
 }
 
 await artifactStore.dispose();
+reviewer.restore();
 console.log(`ALL-PASS (${passed})`);

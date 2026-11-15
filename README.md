@@ -5,7 +5,9 @@
 
 📖 **快速了解项目**：[项目介绍书（简明通俗版）](docs/项目介绍书.md)
 
-**演示链接**：（部署后补充 —— 仓库已备好 Vercel 与 Docker 两套部署配置，见下文「部署」）
+本部署分支基于远程 `d00605a`，新增**站内评测登录与 API 鉴权**，并集成已有的**本机案例、案例包导入导出与个人复核**实现；当前云主机状态、测试账号领取方式和边界见 [公网评测部署说明](docs/public-deployment.md)。仅供受邀评测，不开放注册。
+
+**受邀评测入口**：[https://43.136.20.106/login](https://43.136.20.106/login) —— 直接 IP HTTPS，无需域名。登录、访问控制、真实链接检测及文本接口已通过本轮验证；测试边界与待交付材料见 [部署状态](docs/public-deployment.md)。
 
 ## 一句话定位
 
@@ -19,7 +21,7 @@
 | 直接问聊天 AI | 模型打不开链接、看不到页面，只能凭 URL 字面猜 | Playwright 沙箱代访 + 视觉 / 语义 / 技术三路取证 |
 | 传统网页取证工具 | 输出原始数据，不判断「在仿冒谁」，普通人看不懂 | 四问框架 + 证据三级标注 + 可解释报告 |
 
-## 检测线现状（以 main 实际代码为准，不夸大）
+## 检测线现状（区分主线历史与当前部署分支）
 
 | 检测线 | 现状 | 合入记录 |
 |---|---|---|
@@ -30,6 +32,15 @@
 | 复核治理线（会话隔离截图产物 + 结论 ↔ 证据联动工作台） | ✅ main 已合并：ArtifactStore + 会话隔离端点 + 双向联动工作台 | PR #5 / #6 |
 | 部署配置与本文档 | ✅ 随本 PR 合并（Vercel + Docker 双方案已备，未绑定账号） | `yan/deploy-readme` · PR #10 |
 | 实验产物隔离（`--tag` / `--dir`）与主分析 `max_tokens` 可配置 | ✅ main 已合并 | PR #13 / #14 |
+| 本机案例与个人复核 | ✅ 本部署分支接入：IndexedDB 自动保存、历史回看、个人意见追加、单案例 JSON 包 | 从已有本机实现选择性集成，原工作区保持原状 |
+
+### 本机案例与复核
+
+- 扫描完成后自动保存报告和可用 PNG 到当前浏览器的 IndexedDB；保存失败、截图缺失或敏感副本省略分别告知，可重试或清除。
+- `/cases` 支持搜索、按**模型原判**筛选、待复核和更正记录；历史读取本机 Blob，不依赖 15 分钟短期端点，也不重新扫描。
+- 个人复核只追加意见，可更正或维持原判；**不覆盖模型原始判断**，不自动进入知识库或原始效果评测。
+- 单案例 JSON 包支持导出—删除—导入恢复报告、PNG 与意见；同编号拒绝覆盖，校验失败不写入。格式与隐私边界见 [案例包 v1](docs/case-package-v1.md)。
+- 数据仅在当前浏览器／站点保存，不是 reviewer 账号的云历史；换设备不会自动同步，清理站点数据可能丢失记录。截图与复核理由仍可能含敏感内容，分享案例包前需人工核对。
 
 ### 链接检测线：一次检测发生了什么（main @ 72240b2）
 
@@ -42,30 +53,34 @@
 
 ## 快速开始（本地完整版）
 
-环境要求：Node ≥ 20.9（Next 16 的要求；部署侧固定 22.x，见 `package.json` 的 `engines`）、pnpm 11。
+环境要求：Node 22.13+（22.x；pnpm 11 的要求，见 `package.json` 的 `engines`）、pnpm 11。
 
 ```bash
 git clone https://github.com/mostny/veripage.git
 cd veripage
+git checkout deploy/public-prep-2026-11-14
 pnpm install
 pnpm exec playwright install chromium
 # 国内网络可换镜像：PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/
-cp .env.example .env   # 填入模型 API Key；真实 Key 只放这里（.env 已被 gitignore）
+pnpm reviewer:create reviewer http://localhost:3000  # 生成 .env 与私密账号文件，已有文件不会覆盖
+# 在 .env 配置已授权的模型端点、Key 和模型名；也可使用限定项目的运行时注入
 pnpm dev               # http://localhost:3000
 ```
 
 ### 模型端点与环境变量
 
-当前实际指向 **StepFun**（`https://api.stepfun.com/step_plan/v1`，模型 `step-5-preview`，OpenAI 兼容协议、支持视觉输入）。环境变量名保留历史命名 `VERIPAGE_AGNES_*`（避免与在飞分支改名冲突；名字里的 "AGNES" 只是历史命名，不代表实际端点），**任何 OpenAI 兼容端点都可替换**——只改 `.env`，代码零改动：
+当前部署使用 **DeepSeek**（`https://api.deepseek.com`，文本与视觉均为 `deepseek-flash`），显式配置非思考模式以配合 120 秒总预算；已通过真实文本 JSON 和中文截图识别冒烟。环境变量保留历史命名 `VERIPAGE_AGNES_*`，不表示当前供应商仍为 Agnes。更换兼容端点前需核对其视觉能力、请求参数、模型权益和计费，不自动切换供应商：
 
 | 变量 | 说明 |
 |---|---|
-| `VERIPAGE_AGNES_BASE_URL` | OpenAI 兼容端点 base（当前 `https://api.stepfun.com/step_plan/v1`，代码在其后拼 `/chat/completions`） |
+| `VERIPAGE_AGNES_BASE_URL` | OpenAI 兼容端点 base（当前 `https://api.deepseek.com`，代码在其后拼 `/chat/completions`） |
 | `VERIPAGE_AGNES_API_KEY` | 端点 Key。**只放 .env；任何配置文件 / README / 提交里都不出现真实值** |
-| `VERIPAGE_TEXT_MODEL` | 文本 / 主分析模型（当前 `step-5-preview`） |
-| `VERIPAGE_VISION_MODEL` | 视觉模型，需支持 `image_url` 输入（当前 `step-5-preview`） |
+| `VERIPAGE_TEXT_MODEL` | 文本 / 主分析模型（当前 `deepseek-flash`） |
+| `VERIPAGE_VISION_MODEL` | 视觉模型，需支持 `image_url` 输入（当前 `deepseek-flash`） |
 | `VERIPAGE_PRO_MODEL` | 预留的复杂判断模型 |
 | `VERIPAGE_ANALYZER_MAX_TOKENS` | 主分析器输出预算，默认 6000（推理模型先产 reasoning，预算太小会截断 JSON）；只接受**有限正整数**，非法值（如 `0.5`/`abc`）回落 6000 并打警告 |
+| `VERIPAGE_TEXT_MAX_TOKENS` | 文本体检输出预算，默认 6000 |
+| `VERIPAGE_MODEL_THINKING` | 可选 `enabled` / `disabled`；当前为 `disabled`。留空不发送 `thinking` 字段；非法非空值在发请求前失败 |
 | `VERIPAGE_BROWSER_NO_SANDBOX` | 取证浏览器沙箱**逃生阀**，默认不设＝保留 Chromium OS 级沙箱。仅个别内核未开 user namespace、沙箱无法初始化的环境才设 `1`；开启即放弃该层隔离，见下文「安全边界」 |
 
 端点切换记录与历史实测见 [docs/model-notes.md](docs/model-notes.md)。
@@ -91,11 +106,14 @@ rm -rf .next && pnpm build
 
 ## 部署（两套配置已备好，不绑定任何账号）
 
+本分支已启用受邀评测登录；两种方案都需要配置 `VERIPAGE_REVIEWER_USERNAME`、`VERIPAGE_REVIEWER_PASSWORD_HASH`、`VERIPAGE_SESSION_SECRET`、`VERIPAGE_PUBLIC_ORIGIN`，详见 [公网评测部署说明](docs/public-deployment.md)。缺少身份配置时接口返回 503，不降级为匿名访问。
+
 ### 方案 A：Docker 自托管（完整版，演示首选）
 
 ```bash
-cp .env.example .env          # 填 Key
-docker compose up -d --build  # http://localhost:3000
+node --experimental-strip-types scripts/create-reviewer.mjs  # 首次生成 .env 与私密账号文件
+# 在 .env 配置模型，以及最终 HTTPS 地址对应的 VERIPAGE_PUBLIC_ORIGIN（支持公网 IP）
+docker compose up -d --build  # 仅本机 http://127.0.0.1:3080/login，公网需 HTTPS 反向代理
 ```
 
 `Dockerfile` 已装齐 Playwright chromium 的系统依赖与 Noto CJK 中文字体（服务端取证截图需要中文字形，审计 F17），浏览器二进制固定在 `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`，容器启动不联网下载；容器以专用非 root 用户 `veripage`（uid/gid=10001）运行并叠加 `no-new-privileges:true`（审计 F03）；三闸门全链路可用，行为与本地开发一致。代价：需要一台常驻机器（小型 VPS 即可）。
@@ -155,7 +173,7 @@ flowchart TD
 
 W3 三组对照 + 两组消融（A 黑名单+规则 vs B 裸多模态模型 vs C 完整 orchestrator；消融：去视觉 / 去知识库；61 个本地 fixture 样本，不访问外部真实站点）：
 
-- [W3 三组对照实验报告](eval/experiments/results/report.md) —— 已在 main（PR #12）。核心数字：恶意检出 A 30.3% / B 63.6% / **C 87.9%**，良性误报 A 17.4% / B 39.1% / **C 0%**，结论证据支持率 **100%（366/366，程序校验）**；黑名单未命中样本上 A 仅 14.8% vs C 85.2%。
+- [W3 三组对照实验报告](eval/experiments/results/report.md) —— **2026-10-30 历史模型版本**（PR #12），不是当前 DeepSeek 版复测。历史数字：恶意检出 A 30.3% / B 63.6% / **C 87.9%**，良性误报 A 17.4% / B 39.1% / **C 0%**，结构引用率 **100%（366/366，程序校验引用存在）**；黑名单未命中样本上 A 仅 14.8% vs C 85.2%。结构引用率不等于语义支持率或当前版本检出率。
 - 复现命令（走真实模型端点，消耗 Key 额度，全量五组墙钟合计约 143 分钟，见报告第 7 节）：
   - 全量（写 `results/` 正式目录，目标产物已存在时需显式 `--overwrite`）：`node eval/experiments/run-all.mjs --max-tokens 6000`
   - 试跑（必须加 `--tag`，产物落 `results/<tag>/`，不碰 `results/` 下已提交的全量产物）：`node eval/experiments/run-all.mjs --limit 6 --tag trial-xxx --max-tokens 6000`

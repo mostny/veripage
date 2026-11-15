@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { MAX_TEXT_LENGTH } from "../api/text/route";
+import { MAX_TEXT_LENGTH } from "@/lib/text/constants";
 
 // ---------------------------------------------------------------------------
 // 与服务端同款的结果契约（app/api/text/route.ts）
@@ -147,7 +147,7 @@ export default function TextPage() {
             文本 <span className="text-blue-600">检测台</span>
           </h1>
           <p className="mt-3 text-balance text-sm text-ink-soft sm:text-base">
-            AIGC 判定只给特征倾向与保留意见；隐私脱敏走本地正则，确定性替换、命中可查
+            AIGC 判定只给特征倾向与保留意见；隐私脱敏走服务端正则，确定性替换、命中可查
           </p>
           <Link href="/" className="mt-2 inline-block text-xs text-ink-faint underline hover:text-ink">
             ← 返回链接检测线
@@ -191,8 +191,8 @@ export default function TextPage() {
             </button>
           </div>
           <p id="raw-input-note" className="mt-3 text-xs leading-relaxed text-ink-faint">
-            提交说明：AIGC 判定默认只把<strong className="font-medium text-ink-soft">脱敏后的文本</strong>
-            发送给模型（本地正则先替换手机号/邮箱等，原文不出本机）；如需更完整的判定可勾选下方选项，随请求显式发送原文。
+            提交说明：原文会提交本站服务器进行正则脱敏；AIGC 判定默认只把<strong className="font-medium text-ink-soft">脱敏后的文本</strong>
+            发送给第三方模型。勾选下方选项时，也会将原文发送给模型。
           </p>
           <label htmlFor="raw-input-checkbox" className="mt-1.5 flex items-center gap-2 text-xs text-ink-soft">
             <input
@@ -202,7 +202,7 @@ export default function TextPage() {
               onChange={(e) => setAllowRawInput(e.target.checked)}
               className="h-3.5 w-3.5 accent-blue-600"
             />
-            发送原文以获得更完整判定（含手机号/邮箱等）
+            我了解风险，允许将原文发送给模型（可能含手机号/邮箱等）
           </label>
           {error && (
             <p id="analyze-error" role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -213,7 +213,7 @@ export default function TextPage() {
 
         {loading && (
           <p id="loading-indicator" className="mt-4 rounded-xl border border-line bg-white p-6 text-center text-sm text-ink-soft">
-            {`分析中：AIGC 判定走模型（${allowRawInput ? "已选择发送原文" : "仅发送脱敏文本"}），脱敏在本地进行…`}
+            {`分析中：AIGC 判定走模型（${allowRawInput ? "已选择发送原文" : "仅发送脱敏文本"}），脱敏在本站服务器进行…`}
           </p>
         )}
 
@@ -268,7 +268,7 @@ export default function TextPage() {
 
             {/* 脱敏结果：观察事实级，命中可查，原值不回显 */}
             <section id="redaction-result" aria-label="脱敏结果" className="rounded-xl border border-line bg-white p-4 sm:p-5">
-              <h2 className="mb-3 text-sm font-semibold text-ink">隐私脱敏（本地正则，观察事实级）</h2>
+              <h2 className="mb-3 text-sm font-semibold text-ink">隐私脱敏（服务端正则，观察事实级）</h2>
               {result.redaction.hits.length > 0 ? (
                 <ul className="space-y-1.5">
                   {result.redaction.hits.map((h, i) => (
@@ -308,7 +308,7 @@ export default function TextPage() {
                 {result.redaction.redactedText}
               </pre>
               <p className="mt-2 text-xs leading-relaxed text-ink-faint">
-                说明：脱敏只发生在上面这份返回给你的文本里。本演示环境不保存任何输入，也不声称删除已发出的原始内容。
+                说明：脱敏只改写返回副本，不能撤回已发送的内容。本页结果不持久保存，刷新或关闭后无法回看。
               </p>
             </section>
           </div>

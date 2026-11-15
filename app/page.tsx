@@ -3,9 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
+import { useScanInput } from "./scan-input";
 
 export default function HomePage() {
   const router = useRouter();
+  const { setTargetUrl } = useScanInput();
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
 
@@ -19,7 +21,9 @@ export default function HomePage() {
       const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
       const parsed = new URL(candidate);
       if (!parsed.hostname.includes(".")) throw new Error("hostname");
-      router.push(`/scan?url=${encodeURIComponent(candidate)}`);
+      setTargetUrl(candidate);
+      setUrl("");
+      router.push("/scan");
     } catch {
       setError("链接格式无法解析，请检查后重试");
     }
@@ -37,7 +41,7 @@ export default function HomePage() {
             网鉴 <span className="text-blue-600">VeriPage</span>
           </h1>
           <p className="mt-3 text-balance text-ink-soft">
-            核验网页「声称的身份」与「实际行为」是否一致——证据驱动、可解释、允许人工复核
+            核验网页「声称的身份」与「实际行为」是否一致——证据驱动、可解释、便于人工查证
           </p>
         </header>
 
@@ -79,6 +83,11 @@ export default function HomePage() {
           </div>
         </div>
 
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <Link href="/cases" className="rounded text-blue-600 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">本机案例</Link>
+          <span className="text-ink-faint">仅当前浏览器保存，不是云备份</span>
+        </div>
+
         <Link
           href="/text"
           className="mt-4 block rounded-xl border border-line bg-white p-5 transition hover:border-blue-300"
@@ -89,7 +98,7 @@ export default function HomePage() {
                 文本第二条线 <span className="text-blue-600">·</span> AIGC 识别 + 隐私脱敏
               </div>
               <p className="mt-1 text-xs text-ink-faint">
-                AIGC 判定带保留意见；身份证号 / 手机号 / 银行卡号 / 邮箱四类本地正则脱敏，命中位置可查
+                AIGC 判定带保留意见；身份证号 / 手机号 / 银行卡号 / 邮箱四类服务端正则脱敏，命中位置可查
               </p>
             </div>
             <span className="shrink-0 text-sm text-blue-600" aria-hidden>
@@ -99,9 +108,9 @@ export default function HomePage() {
         </Link>
 
         <p className="mt-6 text-center text-xs leading-relaxed text-ink-faint">
-          你提交的 URL 仅用于本次检测，本演示环境不保存任何输入。
+          链接会提交服务器检测，不放入应用地址栏。报告与可用截图会自动保存在当前浏览器，可在结果页清除。
           <br />
-          检测结论是辅助判断，「未检出风险」不等于保证安全。
+          部分临时取证产物默认 15 分钟后不可访问。请勿提交密码、登录令牌等敏感信息；「未检出风险」不等于保证安全。
         </p>
       </div>
     </main>

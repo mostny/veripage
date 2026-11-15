@@ -1,0 +1,26 @@
+{
+	admin off
+	auto_https disable_redirects
+	default_sni 43.136.20.106
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://43.136.20.106 {
+	bind 0.0.0.0
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			profile shortlived
+			# TLS-ALPN-01 validates on 443; the existing Nginx port 80 is untouched.
+			disable_http_challenge
+		}
+	}
+	request_body {
+		max_size 128KiB
+	}
+	reverse_proxy 127.0.0.1:3080 {
+		flush_interval -1
+	}
+}

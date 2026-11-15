@@ -146,11 +146,16 @@ function normalizeMessage(m: ChatMessage): Record<string, unknown> {
 }
 
 function buildBody(messages: ChatMessage[], opts: ChatOptions, stream: boolean): Record<string, unknown> {
+  const thinking = env("VERIPAGE_MODEL_THINKING");
+  if (thinking !== undefined && thinking !== "enabled" && thinking !== "disabled") {
+    throw new Error("VERIPAGE_MODEL_THINKING 配置无效：仅允许 enabled 或 disabled（也可留空）。");
+  }
   const body: Record<string, unknown> = {
     model: opts.model ?? defaultTextModel(),
     messages: messages.map(normalizeMessage),
     stream,
   };
+  if (thinking !== undefined) body.thinking = { type: thinking };
   // tools 为空数组时部分网关会报错，只在有工具时才带上
   if (opts.tools && opts.tools.length > 0) {
     body.tools = opts.tools;
@@ -187,7 +192,8 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 /** 把错误响应体压成一行并截断，避免异常信息过长 */
 function clip(text: string): string {
-  const oneLine = text.replace(/\s+/g, " ").trim();
+  // Upstream diagnostics are untrusted and may echo the submitted bearer key.
+  const oneLine = text.split(apiKey()).join("[REDACTED]").replace(/\s+/g, " ").trim();
   return oneLine.length > ERROR_BODY_LIMIT ? `${oneLine.slice(0, ERROR_BODY_LIMIT)}…` : oneLine;
 }
 
@@ -267,12 +273,13 @@ export async function chat(messages: ChatMessage[], opts: ChatOptions = {}): Pro
 
   for (let attempt = 0; ; attempt += 1) {
     opts.signal?.throwIfAborted();
+    const body = JSON.stringify(buildBody(messages, opts, false));
     let res: Response;
     try {
       res = await fetch(url, {
         method: "POST",
         headers: headers(),
-        body: JSON.stringify(buildBody(messages, opts, false)),
+        body,
         signal: opts.signal,
       });
     } catch (err) {

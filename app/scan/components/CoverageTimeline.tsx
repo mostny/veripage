@@ -1,6 +1,6 @@
 import type { CoverageEntry } from "@/lib/evidence/types";
 
-const STEP_LABELS: Record<string, string> = {
+export const STEP_LABELS: Record<string, string> = {
   "s0-guard": "访问边界",
   "gate1-static": "链接静态分析",
   "gate2-fetch": "隔离取证",
@@ -9,14 +9,14 @@ const STEP_LABELS: Record<string, string> = {
   validate: "报告校验",
 };
 
-const STATE_LABELS: Record<CoverageEntry["state"], string> = {
+export const STATE_LABELS: Record<CoverageEntry["state"], string> = {
   completed: "完成",
   partial: "部分完成",
   skipped: "跳过",
   failed: "失败",
 };
 
-const STATE_TONE: Record<CoverageEntry["state"], string> = {
+export const STATE_TONE: Record<CoverageEntry["state"], string> = {
   completed: "border-line bg-slate-50/60",
   partial: "border-amber-200 bg-amber-50/70",
   skipped: "border-line bg-white",

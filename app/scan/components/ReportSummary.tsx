@@ -1,6 +1,6 @@
 import type { Assessment, CoverageEntry } from "@/lib/evidence/types";
 
-const RISK_META: Record<Assessment["risk"], { label: string; tone: string; icon: string }> = {
+export const RISK_META: Record<Assessment["risk"], { label: string; tone: string; icon: string }> = {
   high: { label: "高风险", tone: "border-rose-200 bg-rose-50 text-rose-700", icon: "!" },
   suspicious: { label: "可疑", tone: "border-amber-200 bg-amber-50 text-amber-700", icon: "?" },
   no_significant_risk: { label: "暂未发现显著风险", tone: "border-emerald-200 bg-emerald-50 text-emerald-700", icon: "✓" },

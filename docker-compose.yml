@@ -1,9 +1,10 @@
 # 网鉴 VeriPage · 自托管完整版（含 Playwright 沙箱代访）
 #
 # 前置步骤：
-#   1. cp .env.example .env 并填入模型 API Key（.env 已被 .gitignore，也不会进镜像）
-#   2. docker compose up -d --build
-#   3. 打开 http://localhost:3000
+#   1. node --experimental-strip-types scripts/create-reviewer.mjs（生成私密评测账号与 .env）
+#   2. 在 .env 配置模型与最终 HTTPS origin（.env 已被 .gitignore，也不会进镜像）
+#   3. docker compose up -d --build
+#   4. 本机验证 http://127.0.0.1:3080/login；公网接入 HTTPS 反向代理
 #
 # PLAYWRIGHT_BROWSERS_PATH 必须与 Dockerfile 构建期的值一致（/ms-playwright）：
 # 浏览器在镜像构建时装好，运行期直接复用，容器启动不联网下载。
@@ -24,7 +25,8 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "3000:3000"
+      # 仅回环监听，防止绕过 HTTPS 反向代理直接访问应用。
+      - "127.0.0.1:3080:3000"
     env_file:
       - .env
     environment:

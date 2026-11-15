@@ -1,4 +1,5 @@
 import type { EvidenceItem, Finding } from "@/lib/evidence/types";
+import type { ArtifactRetention } from "@/lib/cases/types";
 
 const TYPE_LABEL: Record<EvidenceItem["type"], string> = {
   url: "链接与域名",
@@ -13,6 +14,7 @@ const TYPE_LABEL: Record<EvidenceItem["type"], string> = {
 
 export function EvidencePanel({
   evidence,
+  retention,
   selectedEvidenceId,
   linkedFindings,
   selectedFindingId,
@@ -20,6 +22,7 @@ export function EvidencePanel({
   onSelectFinding,
 }: {
   evidence: EvidenceItem[];
+  retention?: ArtifactRetention[];
   selectedEvidenceId: string | null;
   linkedFindings: Finding[];
   selectedFindingId: string | null;
@@ -42,6 +45,10 @@ export function EvidencePanel({
         <ul className="space-y-2">
           {evidence.map((item) => {
             const selected = selectedEvidenceId === item.id;
+            const retained = retention?.find((entry) => entry.artifactId === item.artifactId);
+            const artifactLabel = retention
+              ? retained?.state === "saved" ? "已存本机" : retained?.state === "omitted" ? "有意省略" : "本机缺失"
+              : item.type === "screenshot" ? "有短期截图" : "有短期产物";
             return (
               <li key={item.id}>
                 <button
@@ -53,7 +60,7 @@ export function EvidencePanel({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-medium text-ink-soft">{TYPE_LABEL[item.type] ?? item.type}</span>
-                    {item.artifactId && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">{item.type === "screenshot" ? "有短期截图" : "有短期产物"}</span>}
+                    {item.artifactId && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">{artifactLabel}</span>}
                   </div>
                   <p className="mt-1.5 break-words text-sm leading-5 text-ink">{item.excerpt ?? item.locator ?? "采集到证据，但没有文字摘录"}</p>
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-ink-faint">

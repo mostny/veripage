@@ -114,15 +114,25 @@ export function validateSnapshot(snapshot: CaseSnapshot): ValidationResult {
     if (!findingById.has(f.id)) findingById.set(f.id, f)
   }
 
-  /** 推理链至少要落到一个真实证据 ID；循环本身不能充当依据。 */
-  const reachesEvidence = (findingId: string, visiting: Set<string>): boolean => {
-    if (visiting.has(findingId)) return false
-    const finding = findingById.get(findingId)
-    if (!finding) return false
-    const nextVisiting = new Set(visiting).add(findingId)
-    return asArray<string>(finding.evidenceIds).some(
-      (ref) => evidenceIds.has(ref) || (findingById.has(ref) && reachesEvidence(ref, nextVisiting)),
-    )
+  // Reverse reachability avoids recursive path explosion on imported cyclic graphs.
+  const dependents = new Map<string, string[]>()
+  const rootedFindings = new Set<string>()
+  const queue: string[] = []
+  for (const finding of findingById.values()) {
+    for (const ref of asArray<string>(finding.evidenceIds)) {
+      if (evidenceIds.has(ref)) {
+        if (!rootedFindings.has(finding.id)) { rootedFindings.add(finding.id); queue.push(finding.id) }
+      } else if (findingById.has(ref)) {
+        const list = dependents.get(ref)
+        if (list) list.push(finding.id)
+        else dependents.set(ref, [finding.id])
+      }
+    }
+  }
+  for (let index = 0; index < queue.length; index++) {
+    for (const id of dependents.get(queue[index]) ?? []) {
+      if (!rootedFindings.has(id)) { rootedFindings.add(id); queue.push(id) }
+    }
   }
 
   const needsEvidence = (kind: FindingKind) => kind === "observed_fact" || kind === "reference"
@@ -143,7 +153,7 @@ export function validateSnapshot(snapshot: CaseSnapshot): ValidationResult {
           hasEvidenceRoot = true
         } else if (!findingIds.has(ref)) {
           errors.push(`finding[${f.id}] 引用了不存在的 id: ${String(ref)}`)
-        } else if (reachesEvidence(ref, new Set([f.id]))) {
+        } else if (rootedFindings.has(ref)) {
           hasEvidenceRoot = true
         }
       }

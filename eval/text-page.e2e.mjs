@@ -1,6 +1,6 @@
 /**
  * Production-browser journey for the text line (/text) with a mocked /api/text.
- * Build first, then run: node eval/text-page.e2e.mjs
+ * Build first, then run: node --experimental-strip-types eval/text-page.e2e.mjs
  * Pattern follows eval/workbench.e2e.mjs (free port -> next start -> Playwright).
  * No external target navigation and no model/API credential are used.
  *
@@ -11,10 +11,15 @@
  *   auto-repeats during loading are ignored
  */
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { chromium } from "playwright";
+import { installReviewerFixture } from "./reviewer-fixture.ts";
+import { REVIEWER_COOKIE } from "../lib/auth/reviewer.ts";
 
 const PORT_SERVER = createServer();
 PORT_SERVER.listen(0, "127.0.0.1");
@@ -22,15 +27,16 @@ await once(PORT_SERVER, "listening");
 const port = PORT_SERVER.address().port;
 await new Promise((resolve, reject) => PORT_SERVER.close((error) => error ? reject(error) : resolve()));
 
-const server = spawn(
-  process.execPath,
-  ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(port)],
-  { cwd: process.cwd(), env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" }, detached: true, stdio: ["ignore", "pipe", "pipe"] },
-);
+const origin = `http://127.0.0.1:${port}`;
+const outputDir = await mkdtemp(join(process.env.VERIPAGE_E2E_OUTPUT_DIR ?? tmpdir(), "veripage-text-"));
+console.log(`SCREENSHOTS ${outputDir}`);
+const reviewer = await installReviewerFixture(origin);
+let server;
+let browser;
 
 /** Windows 上没有进程组信号：组杀失败后退回按 pid 杀，再不行用 taskkill /T /F 杀整树 */
 async function stopServer() {
-  if (server.exitCode !== null) return;
+  if (!server || server.exitCode !== null) return;
   const pid = server.pid;
   try { process.kill(-pid, "SIGTERM"); } catch {}
   try { process.kill(pid, "SIGTERM"); } catch {}
@@ -48,6 +54,24 @@ async function stopServer() {
   }
 }
 
+try {
+server = spawn(
+  process.execPath,
+  ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(port)],
+  {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      NEXT_TELEMETRY_DISABLED: "1",
+      VERIPAGE_AGNES_BASE_URL: "http://127.0.0.1:1",
+      VERIPAGE_AGNES_API_KEY: "offline-text-fixture-key",
+      VERIPAGE_TEXT_MODEL: "offline-text-fixture-model",
+      VERIPAGE_VISION_MODEL: "offline-text-fixture-model",
+    },
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  },
+);
 let serverOutput = "";
 const startupTimer = setTimeout(() => server.kill("SIGTERM"), 40_000);
 try {
@@ -60,12 +84,9 @@ try {
     server.once("error", reject);
     server.once("exit", (code) => reject(new Error(`next start exited ${code}: ${serverOutput.slice(-2000)}`)));
   });
-} catch (error) {
+} finally {
   clearTimeout(startupTimer);
-  await stopServer();
-  throw error;
 }
-clearTimeout(startupTimer);
 
 // --- 固定样本：输入含手机号与邮箱，mock 返回与服务端同构的结果 -------------
 const input = "联系电话 13800138000，邮箱 test@example.com，请尽快回复。";
@@ -93,7 +114,6 @@ const fixture = {
   },
 };
 
-let browser;
 let passed = 0;
 const check = (name, condition, detail = "") => {
   assert.ok(condition, `${name}${detail ? ` (${detail})` : ""}`);
@@ -101,12 +121,19 @@ const check = (name, condition, detail = "") => {
   console.log(`PASS ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
-try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, chromiumSandbox: true });
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },
     permissions: ["clipboard-read", "clipboard-write"],
   });
+  await context.addCookies([{
+    name: REVIEWER_COOKIE,
+    value: reviewer.cookie.slice(REVIEWER_COOKIE.length + 1),
+    url: origin,
+    httpOnly: true,
+    secure: false,
+    sameSite: "Lax",
+  }]);
 
   const page = await context.newPage();
   const pageErrors = [];
@@ -124,14 +151,21 @@ try {
   // 1. 首屏渲染 + 空状态
   await page.goto(`http://127.0.0.1:${port}/text`);
   await page.getByRole("heading", { level: 1 }).waitFor();
-  check("text page renders heading and textarea", await page.locator("#text-input").count() === 1 && (await page.getByRole("heading", { level: 1 }).textContent()).includes("检测台"));
+  await page.screenshot({ path: join(outputDir, "initial.png"), fullPage: true });
+  const initialHeading = await page.getByRole("heading", { level: 1 }).textContent();
+  const initialTextareaCount = await page.locator("#text-input").count();
+  check("text page renders heading and textarea", initialTextareaCount === 1 && initialHeading.includes("检测台"), JSON.stringify({ url: page.url(), heading: initialHeading, textareaCount: initialTextareaCount }));
   check("empty state hint shown before analysis", await page.locator("#empty-hint").count() === 1);
   check("no result regions before analysis", await page.locator("#aigc-result").count() === 0 && await page.locator("#redaction-result").count() === 0);
 
-  // 1b. F01 知情选择：提交前明示「默认仅发送脱敏文本」，复选框默认关闭
+  // 1b. F01 知情选择：原文先到本站脱敏，默认仅向模型发送脱敏文本，复选框默认关闭
+  const rawInputNote = page.locator("#raw-input-note");
+  const rawInputCheckbox = page.getByRole("checkbox", { name: "我了解风险，允许将原文发送给模型（可能含手机号/邮箱等）", exact: true });
   check("raw-input note explains redacted-only default before submission",
-    (await page.locator("#raw-input-note").textContent()).includes("默认只把") && (await page.locator("#raw-input-note").textContent()).includes("脱敏后的文本"));
-  check("raw-input opt-in checkbox defaults to off", await page.locator("#raw-input-checkbox").isChecked() === false);
+    (await rawInputNote.textContent()).includes("默认只把") && (await rawInputNote.textContent()).includes("脱敏后的文本"));
+  check("visible submission note explains original text reaches this server for redaction",
+    await rawInputNote.isVisible() && (await rawInputNote.textContent()).includes("原文会提交本站服务器进行正则脱敏"));
+  check("raw-input opt-in checkbox defaults to off", await rawInputCheckbox.isChecked() === false);
 
   // 2. 键盘提交（Ctrl+Enter）出结果
   await page.locator("#text-input").fill(input);
@@ -143,13 +177,13 @@ try {
     JSON.stringify(submittedBodies.at(-1)));
 
   // 2b. F01 显式 opt-in：勾选后才带 allowRawInput: true
-  await page.locator("#raw-input-checkbox").check();
+  await rawInputCheckbox.check();
   await page.getByRole("button", { name: "开始分析" }).click();
   await page.locator("#aigc-result").waitFor();
   check("F01 opt-in submission carries allowRawInput: true",
     submittedBodies.length === 2 && submittedBodies[1].allowRawInput === true,
     JSON.stringify(submittedBodies.at(-1)));
-  await page.locator("#raw-input-checkbox").uncheck();
+  await rawInputCheckbox.uncheck();
 
   // 3. AIGC 判定区：倾向 + 置信度 + signals + caveats（不做确定性断言）
   check("aigc verdict shows tendency wording", (await page.locator("#aigc-result").textContent()).includes("具有 AI 生成特征"));
@@ -172,6 +206,7 @@ try {
   await page.getByRole("button", { name: "已复制" }).waitFor();
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
   check("copy button copies the redacted text", clipboard === fixture.redaction.redactedText);
+  await page.screenshot({ path: join(outputDir, "desktop.png"), fullPage: true });
 
   // 5. 360 / 390px 无横向溢出
   for (const width of [390, 360]) {
@@ -179,6 +214,7 @@ try {
     await page.waitForTimeout(150);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(`text page fits ${width}px viewport`, overflow <= 0, `horizontal overflow ${overflow}px`);
+    if (width === 390) await page.screenshot({ path: join(outputDir, "mobile.png"), fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 900 });
 
@@ -299,5 +335,9 @@ try {
   console.log(`ALL-PASS (${passed} browser assertions)`);
 } finally {
   await browser?.close().catch(() => undefined);
-  await stopServer();
+  try {
+    await stopServer();
+  } finally {
+    reviewer.restore();
+  }
 }

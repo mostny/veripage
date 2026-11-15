@@ -213,7 +213,8 @@ export class FileArtifactStore implements ArtifactStore {
       const id = randomUUID();
       const root = await this.rootDirectory();
       const extension = metadata.mediaType === "image/png" ? "png" : "txt";
-      filePath = path.join(root, `${id}.${extension}`);
+      // Runtime-only temp files are not build inputs; tracing this path sweeps in private .env files.
+      filePath = path.join(/* turbopackIgnore: true */ root, `${id}.${extension}`);
       await writeFile(filePath, buffer, { flag: "wx", mode: 0o600 });
       signal?.throwIfAborted();
       if (this.sessions.get(taskId) !== session || session.expiresAt <= this.now()) {

@@ -94,7 +94,7 @@ export interface CaseVersions {
   knowledge: string
 }
 
-/** 一次检测的完整快照（本地 IndexedDB cases 存储区的记录形态） */
+/** 一次检测的完整快照；本地 IndexedDB 以 StoredCase.snapshot 封装保存。 */
 export interface CaseSnapshot {
   /** crypto.randomUUID() */
   id: string
@@ -112,17 +112,19 @@ export interface CaseSnapshot {
 }
 
 /** 人工复核事件：只追加，不回填 originalAssessment */
-export interface ReviewEvent {
+interface ReviewEventBase {
   id: string
   caseId: string
   /** ISO 8601 创建时间 */
   createdAt: string
-  action: "flag_false_positive" | "correct_assessment" | "uphold_assessment"
   reason: string
-  /** 人工给出的风险判断（action=correct_assessment 时使用） */
-  humanRisk?: RiskLevel
   actor: "local_user"
 }
+
+export type ReviewEvent = ReviewEventBase & (
+  | { action: "flag_false_positive" | "uphold_assessment"; humanRisk?: never }
+  | { action: "correct_assessment"; humanRisk: RiskLevel }
+)
 
 export const RISK_LEVELS: readonly RiskLevel[] = [
   "high",

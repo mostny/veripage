@@ -1,4 +1,5 @@
 import { artifactCookieName, artifactStore, isArtifactUuid } from "../../../../../../lib/artifacts/store.ts";
+import { authorizeReviewerRequest } from "../../../../../../lib/auth/reviewer.ts";
 
 function noStoreHeaders(): Headers {
   return new Headers({
@@ -37,6 +38,8 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ id: string; artifactId: string }> },
 ): Promise<Response> {
+  const denied = await authorizeReviewerRequest(request);
+  if (denied) return denied;
   const { id, artifactId } = await context.params;
   if (!isArtifactUuid(id) || !isArtifactUuid(artifactId)) return notFound();
   const token = readCookie(request, artifactCookieName(id));

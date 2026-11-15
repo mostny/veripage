@@ -18,6 +18,7 @@
  * 桩内的 API Key 是显而易见的假值，不是任何真实凭据。
  */
 import { redactPii, PII_PLACEHOLDERS, REDACTION_NOTE } from "../lib/text/redact.ts";
+import { installReviewerFixture } from "./reviewer-fixture.ts";
 import {
   AIGC_RETRY_HINT,
   AigcUnavailableError,
@@ -80,6 +81,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   );
 }) as typeof fetch;
 
+const reviewer = await installReviewerFixture("http://127.0.0.1:3000");
 try {
   // 路由模块在桩生效后才导入：不装桩的任何路径都发不出真实请求（F04）
   const { MAX_TEXT_LENGTH, POST } = await import("../app/api/text/route.ts");
@@ -355,7 +357,7 @@ try {
   function makeRequest(body: unknown, raw?: string, signal?: AbortSignal): Request {
     return new Request("http://127.0.0.1:3000/api/text", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...reviewer.headers },
       body: raw ?? JSON.stringify(body),
       ...(signal ? { signal } : {}),
     });
@@ -496,6 +498,7 @@ try {
     );
   }
 } finally {
+  reviewer.restore();
   globalThis.fetch = realFetch;
   if (savedBase === undefined) delete process.env.VERIPAGE_AGNES_BASE_URL;
   else process.env.VERIPAGE_AGNES_BASE_URL = savedBase;

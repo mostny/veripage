@@ -1,0 +1,9 @@
+# Match only the root-owned, non-writable Chromium binary used by this project.
+# This follows Ubuntu's /etc/apparmor.d/chrome user-namespace compatibility profile.
+# Chromium's own namespace/seccomp sandbox remains enabled; global restrictions stay unchanged.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile veripage-chromium /opt/veripage-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+  userns,
+}

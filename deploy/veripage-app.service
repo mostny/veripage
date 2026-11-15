@@ -1,0 +1,26 @@
+[Unit]
+Description=VeriPage invited evaluation application
+After=network.target
+
+[Service]
+Type=simple
+User=veripage
+Group=veripage
+WorkingDirectory=/workspace/传智杯/veripage-public
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=HOME=/var/lib/veripage
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/veripage-playwright
+Environment=FONTCONFIG_FILE=/etc/veripage/fonts.conf
+ExecStart=/usr/local/bin/node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3080
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=150
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+StateDirectory=veripage
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

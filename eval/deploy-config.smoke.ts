@@ -49,6 +49,13 @@ check("F03 逃生阀环境变量名正确", BROWSER_NO_SANDBOX_ENV === "VERIPAGE
       wrongPlan.chromiumSandbox === true && !wrongPlan.args.includes("--no-sandbox"),
     );
   }
+  const isolated = buildChromiumLaunchPlan(undefined, {
+    HOME: "/fixture/home", PATH: "/fixture/bin", FONTCONFIG_FILE: "/fixture/fonts.conf",
+    VERIPAGE_AGNES_API_KEY: "offline-fixture-key", VERIPAGE_SESSION_SECRET: "offline-fixture-secret",
+    VERIPAGE_PUBLIC_ORIGIN: "https://fixture.example", BWS_ACCESS_TOKEN: "offline-fixture-token",
+  });
+  check("浏览器不继承项目凭据或密码库机器令牌", !Object.keys(isolated.env).some((name) => name.startsWith("VERIPAGE_") || name === "BWS_ACCESS_TOKEN"));
+  check("浏览器保留运行路径与中文字体配置", isolated.env.HOME === "/fixture/home" && isolated.env.PATH === "/fixture/bin" && isolated.env.FONTCONFIG_FILE === "/fixture/fonts.conf");
 }
 
 // --- F16：VERIPAGE_ANALYZER_MAX_TOKENS 只接受有限正整数 ------------------------

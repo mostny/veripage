@@ -1,0 +1,26 @@
+[Unit]
+Description=VeriPage IP HTTPS and automatic certificate renewal
+Wants=network-online.target veripage-app.service
+After=network-online.target veripage-app.service
+
+[Service]
+Type=simple
+User=veripage-https
+Group=veripage-https
+Environment=HOME=/var/lib/veripage-https
+Environment=XDG_DATA_HOME=/var/lib/veripage-https/data
+Environment=XDG_CONFIG_HOME=/var/lib/veripage-https/config
+ExecStart=/opt/veripage-caddy/caddy run --config /etc/veripage/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=150
+NoNewPrivileges=true
+PrivateTmp=true
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+UMask=0077
+StateDirectory=veripage-https
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target
