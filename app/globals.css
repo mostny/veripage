@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f5f6f8;
+  --foreground: #1c2b4a;
 }
 
 @theme inline {
@@ -12,11 +12,13 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* 浅色学术简约主题令牌：白纸底 + 深藏青正文 + 细线分区，强调色收敛为藏青蓝 */
+@theme {
+  --color-ink: #1c2b4a;
+  --color-ink-soft: #4e5d77;
+  --color-ink-faint: #8a96ab;
+  --color-paper: #f5f6f8;
+  --color-line: #e3e7ee;
 }
 
 body {

@@ -240,26 +240,26 @@ function ScanClient() {
     : [];
 
   return (
-    <main className="min-h-screen bg-[#07111d] px-3 py-5 text-slate-100 sm:px-5 sm:py-8">
+    <main className="min-h-screen bg-paper px-3 py-5 text-ink sm:px-5 sm:py-8">
       <div className="mx-auto w-full max-w-[1480px]">
-        <header className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 sm:px-5">
+        <header className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-white px-4 py-3 sm:px-5">
           <div className="min-w-0">
-            <Link href="/" className="text-xs font-medium text-emerald-200/80 transition hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300">
+            <Link href="/" className="text-xs font-medium text-blue-600 transition hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
               ← 网鉴 VeriPage
             </Link>
-            <h1 className="mt-1 break-all font-mono text-xs leading-5 text-slate-300 sm:text-sm" title={targetUrl}>
+            <h1 className="mt-1 break-all font-mono text-xs leading-5 text-ink-soft sm:text-sm" title={targetUrl}>
               {targetUrl || "缺少待核验链接"}
             </h1>
           </div>
           <div className="flex items-center gap-3">
             {status === "completed" && (
-              <span className="rounded-full border border-emerald-300/20 bg-emerald-300/5 px-3 py-1 text-xs text-emerald-100/80">检测完成</span>
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">检测完成</span>
             )}
             <button
               type="button"
               onClick={() => targetUrl && void run(targetUrl)}
               disabled={!targetUrl || status === "running"}
-              className="rounded-xl border border-white/15 bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-slate-200 transition hover:border-emerald-200/35 hover:bg-emerald-200/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg border border-line bg-white px-3.5 py-2 text-xs font-medium text-ink-soft transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {status === "running" ? "核验中…" : "重新检测"}
             </button>
@@ -267,24 +267,24 @@ function ScanClient() {
         </header>
 
         {!targetUrl && (
-          <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-8 text-center">
-            <h2 className="text-lg font-semibold">先输入一个待核验链接</h2>
-            <p className="mt-2 text-sm text-slate-400">返回首页粘贴链接；待测页面不会在你的当前浏览器中打开。</p>
+          <section className="rounded-xl border border-line bg-white p-8 text-center">
+            <h2 className="text-lg font-semibold text-ink">先输入一个待核验链接</h2>
+            <p className="mt-2 text-sm text-ink-faint">返回首页粘贴链接；待测页面不会在你的当前浏览器中打开。</p>
           </section>
         )}
 
         {status === "running" && !snapshot && (
-          <div role="status" className="mb-4 flex items-center gap-3 rounded-2xl border border-sky-200/15 bg-sky-200/[0.04] px-4 py-3 text-sm text-sky-100/90">
+          <div role="status" className="mb-4 flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-sm text-blue-800">
             <span aria-hidden="true" className="motion-safe:animate-spin">◌</span>
             <span>隔离取证与证据核验正在进行。未执行的步骤会明确标出。</span>
           </div>
         )}
 
         {fatal && (
-          <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200/20 bg-rose-200/[0.05] px-4 py-3 text-sm text-rose-100">
+          <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50/70 px-4 py-3 text-sm text-rose-700">
             <p>{fatal}</p>
             {targetUrl && (
-              <button type="button" onClick={() => void run(targetUrl)} className="rounded-lg border border-rose-100/20 px-3 py-1.5 text-xs font-medium hover:bg-rose-100/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200">
+              <button type="button" onClick={() => void run(targetUrl)} className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300">
                 重试核验
               </button>
             )}
@@ -293,21 +293,16 @@ function ScanClient() {
 
         {snapshot && assessment && (
           <>
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[250px_minmax(0,1.15fr)_minmax(360px,0.95fr)] xl:grid-rows-[auto_auto] xl:items-start">
-              <div className="xl:col-start-3 xl:row-start-1">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[250px_minmax(0,1.25fr)_minmax(340px,0.95fr)]">
+              <div className="xl:col-span-3 xl:row-start-1">
                 <ReportSummary assessment={assessment} coverage={snapshot.coverage} />
               </div>
 
-              <div className="xl:col-start-3 xl:row-start-2">
-                <FindingList
-                  findings={assessment.findings}
-                  selectedFindingId={selectedFindingId}
-                  onSelectFinding={selectFinding}
-                  evidenceCountForFinding={(finding) => resolveEvidenceIdsForFinding(finding.id, assessment.findings, snapshot.evidence).length}
-                />
+              <div className="xl:col-start-1 xl:row-start-2 xl:row-span-2">
+                <CoverageTimeline coverage={snapshot.coverage} />
               </div>
 
-              <div className="xl:col-start-2 xl:row-start-1">
+              <div className="xl:col-start-2 xl:row-start-2">
                 <ScreenshotViewer
                   taskId={taskId}
                   evidence={snapshot.evidence}
@@ -319,7 +314,16 @@ function ScanClient() {
                 />
               </div>
 
-              <div className="xl:col-start-2 xl:row-start-2">
+              <div className="xl:col-start-3 xl:row-start-2 xl:row-span-2">
+                <FindingList
+                  findings={assessment.findings}
+                  selectedFindingId={selectedFindingId}
+                  onSelectFinding={selectFinding}
+                  evidenceCountForFinding={(finding) => resolveEvidenceIdsForFinding(finding.id, assessment.findings, snapshot.evidence).length}
+                />
+              </div>
+
+              <div className="xl:col-start-2 xl:row-start-3">
                 <EvidencePanel
                   evidence={snapshot.evidence}
                   selectedEvidenceId={selectedEvidenceId}
@@ -329,15 +333,11 @@ function ScanClient() {
                   onSelectFinding={selectFinding}
                 />
               </div>
-
-              <div className="xl:col-start-1 xl:row-span-2 xl:row-start-1">
-                <CoverageTimeline coverage={snapshot.coverage} />
-              </div>
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.72fr)]">
               <SaveStatus />
-              <div className="flex flex-col justify-center gap-1 px-2 text-center text-[11px] leading-5 text-slate-600 lg:text-right">
+              <div className="flex flex-col justify-center gap-1 px-2 text-center text-[11px] leading-5 text-ink-faint lg:text-right">
                 <span>原始风险判断与证据快照 · model={snapshot.versions.model} · prompt={snapshot.versions.prompt}</span>
                 <span>AI 辅助核验；“暂未发现显著风险”不构成安全保证。</span>
               </div>
@@ -346,7 +346,7 @@ function ScanClient() {
         )}
 
         {snapshot && !assessment && (
-          <div role="alert" className="rounded-2xl border border-amber-200/20 bg-amber-200/[0.04] p-5 text-sm text-amber-100">
+          <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50/70 p-5 text-sm text-amber-800">
             收到的报告缺少有效判断结构。请重试；本次不会将不完整结果展示为结论。
           </div>
         )}
@@ -361,7 +361,7 @@ function ScanClient() {
 
 export default function ScanPage() {
   return (
-    <Suspense fallback={<main className="grid min-h-screen place-items-center bg-[#07111d] text-sm text-slate-400">正在载入核验工作台…</main>}>
+    <Suspense fallback={<main className="grid min-h-screen place-items-center bg-paper text-sm text-ink-faint">正在载入核验工作台…</main>}>
       <ScanClient />
     </Suspense>
   );

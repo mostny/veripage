@@ -17,38 +17,45 @@ const STATE_LABELS: Record<CoverageEntry["state"], string> = {
 };
 
 const STATE_TONE: Record<CoverageEntry["state"], string> = {
-  completed: "border-emerald-300/20 bg-emerald-300/5",
-  partial: "border-amber-200/20 bg-amber-200/[0.04]",
-  skipped: "border-slate-300/10 bg-slate-300/[0.025]",
-  failed: "border-rose-300/25 bg-rose-300/[0.05]",
+  completed: "border-line bg-slate-50/60",
+  partial: "border-amber-200 bg-amber-50/70",
+  skipped: "border-line bg-white",
+  failed: "border-rose-200 bg-rose-50/70",
+};
+
+const STATE_TEXT: Record<CoverageEntry["state"], string> = {
+  completed: "text-emerald-700",
+  partial: "text-amber-700",
+  skipped: "text-ink-faint",
+  failed: "text-rose-700",
 };
 
 export function CoverageTimeline({ coverage }: { coverage: CoverageEntry[] }) {
   return (
-    <section aria-labelledby="coverage-title" className="rounded-2xl border border-white/10 bg-slate-900/65 p-4 sm:p-5">
+    <section aria-labelledby="coverage-title" className="rounded-xl border border-line bg-white p-4 sm:p-5">
       <div className="mb-4 flex items-center justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">过程透明</p>
-          <h2 id="coverage-title" className="mt-1 text-base font-semibold text-slate-100">检测覆盖</h2>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">过程透明</p>
+          <h2 id="coverage-title" className="mt-1 text-base font-semibold text-ink">检测覆盖</h2>
         </div>
-        <span className="rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-400">{coverage.length} 步</span>
+        <span className="rounded-full border border-line bg-slate-50/70 px-2.5 py-1 text-xs text-ink-faint">{coverage.length} 步</span>
       </div>
       {coverage.length === 0 ? (
-        <p className="text-sm text-slate-500">没有收到阶段记录。</p>
+        <p className="text-sm text-ink-faint">没有收到阶段记录。</p>
       ) : (
         <ol className="space-y-2.5">
           {coverage.map((entry, index) => (
-            <li key={`${entry.step}-${index}`} className={`rounded-xl border p-3 ${STATE_TONE[entry.state]}`}>
+            <li key={`${entry.step}-${index}`} className={`rounded-lg border p-3 ${STATE_TONE[entry.state]}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-2.5">
-                  <span aria-hidden="true" className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border border-white/15 text-[10px] text-slate-300">
+                  <span aria-hidden="true" className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border border-line bg-white text-[10px] text-ink-faint">
                     {index + 1}
                   </span>
-                  <p className="text-sm font-medium leading-5 text-slate-200">{STEP_LABELS[entry.step] ?? entry.step}</p>
+                  <p className="text-sm font-medium leading-5 text-ink">{STEP_LABELS[entry.step] ?? entry.step}</p>
                 </div>
-                <span className="shrink-0 text-xs text-slate-400">{STATE_LABELS[entry.state]}</span>
+                <span className={`shrink-0 text-xs ${STATE_TEXT[entry.state]}`}>{STATE_LABELS[entry.state]}</span>
               </div>
-              <p className="mt-1.5 pl-[30px] text-xs leading-5 text-slate-500">
+              <p className="mt-1.5 pl-[30px] text-xs leading-5 text-ink-faint">
                 {entry.reason ?? (entry.state === "completed" ? "已完成" : "系统未提供具体原因")}
               </p>
             </li>

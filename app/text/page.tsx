@@ -43,15 +43,15 @@ interface TextAnalysisResponse {
 const CONCLUSION_META: Record<AigcConclusion, { label: string; cls: string }> = {
   likely_aigc: {
     label: "具有 AI 生成特征",
-    cls: "border-amber-500/50 bg-amber-500/10 text-amber-200",
+    cls: "border-amber-200 bg-amber-50 text-amber-700",
   },
   likely_human: {
     label: "未观察到明显 AI 生成特征",
-    cls: "border-emerald-500/50 bg-emerald-500/10 text-emerald-200",
+    cls: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
   undetermined: {
     label: "无法判定",
-    cls: "border-neutral-600 bg-neutral-800/60 text-neutral-300",
+    cls: "border-line bg-slate-100 text-ink-soft",
   },
 };
 
@@ -136,26 +136,26 @@ export default function TextPage() {
   const overLimit = text.length > MAX_TEXT_LENGTH;
 
   return (
-    <main className="flex min-h-screen flex-col items-center bg-neutral-950 px-4 py-10 text-neutral-100 sm:px-6 sm:py-16">
+    <main className="flex min-h-screen flex-col items-center bg-paper px-4 py-10 text-ink sm:px-6 sm:py-16">
       <div className="w-full max-w-3xl">
         <header className="mb-8 text-center">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden />
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1 text-xs text-ink-soft">
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-600" aria-hidden />
             文本第二条线 · AIGC 识别 + 隐私脱敏
           </div>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            文本 <span className="text-sky-400">检测台</span>
+          <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+            文本 <span className="text-blue-600">检测台</span>
           </h1>
-          <p className="mt-3 text-balance text-sm text-neutral-400 sm:text-base">
+          <p className="mt-3 text-balance text-sm text-ink-soft sm:text-base">
             AIGC 判定只给特征倾向与保留意见；隐私脱敏走本地正则，确定性替换、命中可查
           </p>
-          <Link href="/" className="mt-2 inline-block text-xs text-neutral-500 underline hover:text-neutral-300">
+          <Link href="/" className="mt-2 inline-block text-xs text-ink-faint underline hover:text-ink">
             ← 返回链接检测线
           </Link>
         </header>
 
-        <section className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 shadow-lg sm:p-5">
-          <label htmlFor="text-input" className="mb-2 block text-sm font-medium text-neutral-300">
+        <section className="rounded-xl border border-line bg-white p-4 sm:p-5">
+          <label htmlFor="text-input" className="mb-2 block text-sm font-medium text-ink-soft">
             待检测文本
           </label>
           <textarea
@@ -175,50 +175,50 @@ export default function TextPage() {
             }}
             rows={8}
             placeholder="粘贴待检测文本（Ctrl+Enter 快捷提交）。例如含手机号、邮箱、身份证号、银行卡号的文本，可同时看到脱敏结果。"
-            className="w-full resize-y rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm leading-relaxed text-neutral-100 outline-none transition focus:border-sky-500"
+            className="w-full resize-y rounded-lg border border-line bg-white px-3 py-2.5 text-sm leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <span className={`text-xs ${overLimit ? "text-red-400" : "text-neutral-500"}`}>
+            <span className={`text-xs ${overLimit ? "text-red-600" : "text-ink-faint"}`}>
               {text.length} / {MAX_TEXT_LENGTH} 字符
             </span>
             <button
               onClick={() => void analyze()}
               aria-busy={loading}
               title={loading ? "重新提交会取消当前分析，以最新一次为准" : undefined}
-              className="shrink-0 rounded-lg bg-sky-500 px-5 py-2.5 text-sm font-semibold text-neutral-950 transition hover:bg-sky-400"
+              className="shrink-0 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
             >
               {loading ? "分析中…（可重新提交）" : "开始分析"}
             </button>
           </div>
-          <p id="raw-input-note" className="mt-3 text-xs leading-relaxed text-neutral-500">
-            提交说明：AIGC 判定默认只把<strong className="font-medium text-neutral-300">脱敏后的文本</strong>
+          <p id="raw-input-note" className="mt-3 text-xs leading-relaxed text-ink-faint">
+            提交说明：AIGC 判定默认只把<strong className="font-medium text-ink-soft">脱敏后的文本</strong>
             发送给模型（本地正则先替换手机号/邮箱等，原文不出本机）；如需更完整的判定可勾选下方选项，随请求显式发送原文。
           </p>
-          <label htmlFor="raw-input-checkbox" className="mt-1.5 flex items-center gap-2 text-xs text-neutral-400">
+          <label htmlFor="raw-input-checkbox" className="mt-1.5 flex items-center gap-2 text-xs text-ink-soft">
             <input
               id="raw-input-checkbox"
               type="checkbox"
               checked={allowRawInput}
               onChange={(e) => setAllowRawInput(e.target.checked)}
-              className="h-3.5 w-3.5 accent-sky-500"
+              className="h-3.5 w-3.5 accent-blue-600"
             />
             发送原文以获得更完整判定（含手机号/邮箱等）
           </label>
           {error && (
-            <p id="analyze-error" role="alert" className="mt-3 rounded-lg border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
+            <p id="analyze-error" role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
             </p>
           )}
         </section>
 
         {loading && (
-          <p id="loading-indicator" className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-center text-sm text-neutral-400">
+          <p id="loading-indicator" className="mt-4 rounded-xl border border-line bg-white p-6 text-center text-sm text-ink-soft">
             {`分析中：AIGC 判定走模型（${allowRawInput ? "已选择发送原文" : "仅发送脱敏文本"}），脱敏在本地进行…`}
           </p>
         )}
 
         {!loading && !result && !error && (
-          <p id="empty-hint" className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-center text-sm text-neutral-500">
+          <p id="empty-hint" className="mt-4 rounded-xl border border-line bg-white p-6 text-center text-sm text-ink-faint">
             粘贴文本后点击「开始分析」，AIGC 判定与隐私脱敏结果会显示在这里。
           </p>
         )}
@@ -226,21 +226,21 @@ export default function TextPage() {
         {result && (
           <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* AIGC 判定：推断级结论，必须带信号与保留意见 */}
-            <section id="aigc-result" aria-label="AIGC 判定" className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 sm:p-5">
-              <h2 className="mb-3 text-sm font-semibold text-neutral-300">AIGC 判定（推断级）</h2>
+            <section id="aigc-result" aria-label="AIGC 判定" className="rounded-xl border border-line bg-white p-4 sm:p-5">
+              <h2 className="mb-3 text-sm font-semibold text-ink">AIGC 判定（推断级）</h2>
               <div className={`rounded-lg border p-3 ${conclusionMeta?.cls ?? ""}`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-base font-semibold">{conclusionMeta?.label}</span>
                   <span className="font-mono text-sm">置信度 {percent(result.aigc.confidence)}</span>
                 </div>
               </div>
-              <p className="mt-2 text-xs leading-relaxed text-neutral-500">
+              <p className="mt-2 text-xs leading-relaxed text-ink-faint">
                 AI 检测本身存在不确定性，以上为特征倾向而非事实认定；置信度低于 50% 时结论为「无法判定」。
               </p>
 
-              <h3 className="mt-4 text-xs font-medium text-neutral-400">支持特征（signals）</h3>
+              <h3 className="mt-4 text-xs font-medium text-ink-soft">支持特征（signals）</h3>
               {result.aigc.signals.length > 0 ? (
-                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-neutral-300">
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-ink-soft">
                   {result.aigc.signals.map((s, i) => (
                     <li key={i} className="break-words">
                       {s}
@@ -248,11 +248,11 @@ export default function TextPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="mt-1 text-sm text-neutral-500">模型未给出支持特征。</p>
+                <p className="mt-1 text-sm text-ink-faint">模型未给出支持特征。</p>
               )}
 
-              <h3 className="mt-4 text-xs font-medium text-neutral-400">保留意见（caveats）</h3>
-              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-neutral-300">
+              <h3 className="mt-4 text-xs font-medium text-ink-soft">保留意见（caveats）</h3>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-ink-soft">
                 {result.aigc.caveats.map((c, i) => (
                   <li key={i} className="break-words">
                     {c}
@@ -260,61 +260,61 @@ export default function TextPage() {
                 ))}
               </ul>
 
-              <p className="mt-4 text-xs text-neutral-600">
+              <p className="mt-4 text-xs text-ink-faint">
                 提示词版本 {result.aigc.promptVersion} · 模型 {result.aigc.model ?? "默认（VERIPAGE_TEXT_MODEL）"}
                 {result.aigc.repaired ? " · 模型输出经一次纠偏重试后解析成功" : ""}
               </p>
             </section>
 
             {/* 脱敏结果：观察事实级，命中可查，原值不回显 */}
-            <section id="redaction-result" aria-label="脱敏结果" className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 sm:p-5">
-              <h2 className="mb-3 text-sm font-semibold text-neutral-300">隐私脱敏（本地正则，观察事实级）</h2>
+            <section id="redaction-result" aria-label="脱敏结果" className="rounded-xl border border-line bg-white p-4 sm:p-5">
+              <h2 className="mb-3 text-sm font-semibold text-ink">隐私脱敏（本地正则，观察事实级）</h2>
               {result.redaction.hits.length > 0 ? (
                 <ul className="space-y-1.5">
                   {result.redaction.hits.map((h, i) => (
                     <li
                       key={i}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-sm"
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-slate-50/70 px-3 py-2 text-sm"
                     >
-                      <span className="text-neutral-200">{h.label}</span>
-                      <span className="font-mono text-xs text-neutral-500">
+                      <span className="text-ink">{h.label}</span>
+                      <span className="font-mono text-xs text-ink-faint">
                         位置 {h.start}–{h.end} · 已替换为占位符
                       </span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-sm text-neutral-500">
+                <p className="rounded-lg border border-line bg-slate-50/70 px-3 py-2 text-sm text-ink-faint">
                   未命中四类已知模式（身份证号 / 手机号 / 银行卡号 / 邮箱）。
                 </p>
               )}
-              <p className="mt-2 text-xs text-neutral-600">
+              <p className="mt-2 text-xs text-ink-faint">
                 命中清单只含类型与位置区间，不回显原值；{result.redaction.note}。
               </p>
 
               <div className="mt-4 flex items-center justify-between gap-2">
-                <h3 className="text-xs font-medium text-neutral-400">脱敏后文本</h3>
+                <h3 className="text-xs font-medium text-ink-soft">脱敏后文本</h3>
                 <button
                   onClick={() => void copyRedacted()}
-                  className="shrink-0 rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-sky-500 hover:text-sky-300"
+                  className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs text-ink-soft transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
                 >
                   {copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败，请手动选择" : "复制脱敏文本"}
                 </button>
               </div>
               <pre
                 id="redacted-text"
-                className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-neutral-800 bg-neutral-950 p-3 font-mono text-xs leading-relaxed text-neutral-300"
+                className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-line bg-slate-50/70 p-3 font-mono text-xs leading-relaxed text-ink-soft"
               >
                 {result.redaction.redactedText}
               </pre>
-              <p className="mt-2 text-xs leading-relaxed text-neutral-600">
+              <p className="mt-2 text-xs leading-relaxed text-ink-faint">
                 说明：脱敏只发生在上面这份返回给你的文本里。本演示环境不保存任何输入，也不声称删除已发出的原始内容。
               </p>
             </section>
           </div>
         )}
 
-        <p className="mt-6 text-center text-xs leading-relaxed text-neutral-600">
+        <p className="mt-6 text-center text-xs leading-relaxed text-ink-faint">
           检测结论是辅助判断，「未观察到 AI 特征」不等于保证是人类所写。
           <br />
           脱敏为正则匹配，敏感信息外发前请人工复核。
